@@ -1,6 +1,7 @@
 'use client';
 
-import { useAuth } from '@/app/context/AuthContext';
+import { MainHeader } from '@/components/Header';
+import { useAuth } from '@/context/AuthContext';
 import L, { LatLngBoundsExpression, LatLngExpression, PathOptions } from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import dynamic from 'next/dynamic';
@@ -72,10 +73,10 @@ const FreeSpotsCluster: React.FC<{
 };
 
 const MapPage: React.FC = () => {
+  const { user, authFetch } = useAuth();
   const [spots, setSpots] = useState<ParkingSpot[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const { user, accessToken } = useAuth();
   const router = useRouter();
 
   const almatyCenter: LatLngExpression = [43.23517, 76.90991];
@@ -90,13 +91,12 @@ const MapPage: React.FC = () => {
     if (!user) router.push('/auth/login');
   }, [user, router]);
 
-  // Загрузка парковок
+  // Загрузка парковок через authFetch
   useEffect(() => {
     setLoading(true);
     setError(null);
-    fetch('http://localhost:8000/api/sensor/', {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    })
+
+    authFetch('http://localhost:8000/api/sensor/')
       .then((res) => {
         if (!res.ok) throw new Error(`Ошибка ${res.status}`);
         return res.json() as Promise<ParkingSpot[]>;
@@ -104,52 +104,55 @@ const MapPage: React.FC = () => {
       .then((data) => setSpots(data))
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [accessToken]);
+  }, [authFetch]);
 
   if (loading) return <div>Загрузка карты...</div>;
   if (error) return <div>Ошибка: {error}</div>;
   if (!user) return null;
 
   return (
-    <MapContainer
-      center={almatyCenter}
-      zoom={zoomThreshold + 1}
-      maxBounds={almatyBounds}
-      style={{ height: '100vh', width: '100%' }}
-    >
-      <TileLayer
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        attribution="&copy; OpenStreetMap contributors"
-      />
+    <div>
+      <MainHeader />
 
-      <FreeSpotsCluster spots={spots} center={almatyCenter} zoomThreshold={zoomThreshold} />
+      <MapContainer
+        center={almatyCenter}
+        zoom={zoomThreshold + 1}
+        maxBounds={almatyBounds}
+        style={{ height: '100vh', width: '100%' }}
+      >
+        <TileLayer
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          attribution="&copy; OpenStreetMap contributors"
+        />
 
-      {spots.map((spot) => {
-        // Собираем array из 4 точек
-        const positions: LatLngExpression[] = [
-          [spot.latitude1, spot.longitude1],
-          [spot.latitude2, spot.longitude2],
-          [spot.latitude3, spot.longitude3],
-          [spot.latitude4, spot.longitude4],
-        ];
+        <FreeSpotsCluster spots={spots} center={almatyCenter} zoomThreshold={zoomThreshold} />
 
-        const pathOptions = {
-          color: spot.is_lock ? 'red' : 'green',
-          weight: 2,
-          fillOpacity: 0.3,
-        } as PathOptions;
+        {spots.map((spot) => {
+          const positions: LatLngExpression[] = [
+            [spot.latitude1, spot.longitude1],
+            [spot.latitude2, spot.longitude2],
+            [spot.latitude3, spot.longitude3],
+            [spot.latitude4, spot.longitude4],
+          ];
 
-        return (
-          <Polygon key={spot.reference} positions={positions} pathOptions={pathOptions}>
-            <Popup>
-              Reference: {spot.reference}
-              <br />
-              Состояние: {spot.is_lock ? 'Занято' : 'Свободно'}
-            </Popup>
-          </Polygon>
-        );
-      })}
-    </MapContainer>
+          const pathOptions = {
+            color: spot.is_lock ? 'red' : 'green',
+            weight: 2,
+            fillOpacity: 0.3,
+          } as PathOptions;
+
+          return (
+            <Polygon key={spot.reference} positions={positions} pathOptions={pathOptions}>
+              <Popup>
+                Reference: {spot.reference}
+                <br />
+                Состояние: {spot.is_lock ? 'Занято' : 'Свободно'}
+              </Popup>
+            </Polygon>
+          );
+        })}
+      </MapContainer>
+    </div>
   );
 };
 
