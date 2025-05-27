@@ -11,10 +11,11 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // @ts-ignore
     try {
       await login(username, password);
-    } catch (err: any) {
+    } catch (err) {
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+      // @ts-expect-error
       setError(err.message);
     }
   };

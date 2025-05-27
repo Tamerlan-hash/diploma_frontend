@@ -1,5 +1,5 @@
-import { WelcomePage } from '@/pages/WelcomePage';
+import LandingPage from './landing/page';
 
 export default function Home() {
-  return <WelcomePage />;
+  return <LandingPage />;
 }

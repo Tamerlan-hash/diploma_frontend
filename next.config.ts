@@ -16,6 +16,9 @@ const nextConfig: NextConfig = withPWA({
     BACKEND_URL: process.env.BACKEND_URL,
   },
   pageExtensions: ['ts', 'tsx'],
+  images: {
+    domains: ['randomuser.me'],
+  },
 });
 
 export default nextConfig;

@@ -8,13 +8,17 @@ export default function SignupPage() {
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [carNumber, setCarNumber] = useState('');
+  const [carModel, setCarModel] = useState('');
   const [error, setError] = useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await register(username, email, password);
-    } catch (err: any) {
+      await register(username, email, password, carNumber, carModel);
+    } catch (err) {
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+      // @ts-expect-error
       setError(err.message);
     }
   };
@@ -41,6 +45,18 @@ export default function SignupPage() {
         value={password}
         onChange={(e) => setPassword(e.target.value)}
         placeholder="Password"
+        required
+      />
+      <input
+        value={carNumber}
+        onChange={(e) => setCarNumber(e.target.value)}
+        placeholder="Номер машины"
+        required
+      />
+      <input
+        value={carModel}
+        onChange={(e) => setCarModel(e.target.value)}
+        placeholder="Модель машины"
         required
       />
       <button type="submit">Зарегистрироваться</button>

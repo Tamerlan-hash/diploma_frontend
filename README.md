@@ -1,4 +1,4 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+This is a Smart Parking application built with [Next.js](https://nextjs.org) that allows users to view, book, and manage parking spots.
 
 ## Getting Started
 
@@ -28,6 +28,25 @@ To learn more about Next.js, take a look at the following resources:
 - [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
 
 You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+
+## Testing
+
+This project includes end-to-end (E2E) tests using Playwright. These tests cover authentication, map functionality, and reservation management.
+
+To run the tests:
+
+```bash
+# Install dependencies
+npm install
+
+# Install Playwright browsers
+npx playwright install
+
+# Run all tests
+npm run test:e2e
+```
+
+For more details about the tests, see the [tests README](./tests/README.md).
 
 ## Deploy on Vercel
 
