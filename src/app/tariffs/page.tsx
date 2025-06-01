@@ -29,7 +29,7 @@ interface UserSubscription {
 }
 
 const TariffsPage = () => {
-  const { accessToken } = useAuth();
+  const { authFetch } = useAuth();
   const router = useRouter();
   const [zones, setZones] = useState<TariffZone[]>([]);
   const [rules, setRules] = useState<TariffRule[]>([]);
@@ -39,25 +39,12 @@ const TariffsPage = () => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!accessToken) {
-      router.push('/auth/login');
-      return;
-    }
-
     // Fetch tariff zones
     const fetchZones = async () => {
       try {
-        const response = await fetch('http://localhost:8000/api/subscriptions/zones/', {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-          },
-        });
+        const response = await authFetch('/api/subscriptions/zones/');
 
-        if (!response.ok) {
-          throw new Error('Failed to fetch tariff zones');
-        }
-
-        const data = await response.json();
+        const data = response.data;
         setZones(data);
 
         // Select first zone by default
@@ -73,17 +60,10 @@ const TariffsPage = () => {
     // Fetch active subscription
     const fetchActiveSubscription = async () => {
       try {
-        const response = await fetch(
-          'http://localhost:8000/api/subscriptions/subscriptions/active/',
-          {
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-            },
-          },
-        );
+        const response = await authFetch('/api/subscriptions/subscriptions/active/');
 
-        if (response.ok) {
-          const data = await response.json();
+        if (response.status === 200) {
+          const data = response.data;
           setActiveSubscription(data);
         }
       } catch (error) {
@@ -98,28 +78,17 @@ const TariffsPage = () => {
     };
 
     fetchData();
-  }, [accessToken, router]);
+  }, [authFetch, router]);
 
   // Fetch tariff rules when selected zone changes
   useEffect(() => {
-    if (!selectedZone || !accessToken) return;
+    if (!selectedZone) return;
 
     const fetchRules = async () => {
       try {
-        const response = await fetch(
-          `http://localhost:8000/api/subscriptions/rules/?zone_id=${selectedZone}`,
-          {
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-            },
-          },
-        );
+        const response = await authFetch(`/api/subscriptions/rules/?zone_id=${selectedZone}`);
 
-        if (!response.ok) {
-          throw new Error('Failed to fetch tariff rules');
-        }
-
-        const data = await response.json();
+        const data = response.data;
         setRules(data);
       } catch (error) {
         console.error('Error fetching tariff rules:', error);
@@ -128,7 +97,7 @@ const TariffsPage = () => {
     };
 
     fetchRules();
-  }, [selectedZone, accessToken]);
+  }, [selectedZone, authFetch]);
 
   const getTimePeriodDisplay = (timePeriod: string) => {
     switch (timePeriod) {

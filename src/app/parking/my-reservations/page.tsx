@@ -1,161 +1,208 @@
 'use client';
 
 import { useAuth } from '@/context/AuthContext';
-import axios from 'axios';
+import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
-// Extended Reservation interface with additional fields that might be returned from the API
 interface Reservation {
-  id?: string;
-  parking_spot: string;
+  id: number;
+  parking_spot: {
+    id: number;
+    name: string;
+    reference: string;
+  };
   start_time: string;
   end_time: string;
-  status?: string;
-  price?: number;
-  spot_name?: string; // This might be included or we might need to fetch it separately
-}
-
-// Status messages for UI feedback
-interface StatusMessage {
-  type: 'success' | 'error';
-  text: string;
+  status: 'pending' | 'active' | 'completed' | 'cancelled';
+  total_price: number;
+  payment: {
+    id: number;
+    amount: number;
+    status: string;
+  };
+  payment_method_type: 'card' | 'wallet';
+  user_arrived: boolean;
+  arrival_time: string | null;
+  created_at: string;
+  is_blocker_raised?: boolean;
+  can_control_blocker?: boolean;
+  is_occupied?: boolean;
 }
 
 export default function MyReservationsPage() {
   const { user, authFetch } = useAuth();
+  const router = useRouter();
+
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [statusMessage, setStatusMessage] = useState<StatusMessage | null>(null);
-  const [cancellingId, setCancellingId] = useState<string | null>(null);
-  const [filter, setFilter] = useState<'all' | 'active' | 'pending' | 'cancelled'>('active');
+  const [actionLoading, setActionLoading] = useState<number | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [blockerAction, setBlockerAction] = useState<string | null>(null);
 
-  // Fetch reservations when the component mounts
-  const fetchReservations = () => {
-    if (!user) return;
+  // Fetch reservations
+  useEffect(() => {
+    if (!user) {
+      router.push('/auth/login');
+      return;
+    }
 
     setLoading(true);
     setError(null);
 
-    authFetch<Reservation[]>('/api/parking/reservations/')
-      .then((res) => {
-        setReservations(res.data);
+    // Build the URL with filter if not 'all'
+    let url = '/api/parking/my-reservations/';
+    if (statusFilter !== 'all') {
+      url += `?status=${statusFilter}`;
+    }
+
+    authFetch(url)
+      .then(response => {
+        setReservations(response.data);
       })
-      .catch((e) => {
-        if (axios.isAxiosError(e) && e.response) {
-          setError(e.response.data?.detail || JSON.stringify(e.response.data) || `Ошибка ${e.response.status}`);
-        } else {
-          setError('Не удалось загрузить бронирования');
-        }
+      .catch(error => {
+        console.error('Error fetching reservations:', error);
+        setError('Не удалось загрузить бронирования. Пожалуйста, попробуйте еще раз.');
       })
       .finally(() => {
         setLoading(false);
       });
+  }, [user, authFetch, router, statusFilter]);
+
+  // Handle reservation cancellation
+  const handleCancel = (reservationId: number) => {
+    setActionLoading(reservationId);
+    setActionError(null);
+    setActionSuccess(null);
+    setBlockerAction(null);
+
+    authFetch(`/api/parking/reservations/${reservationId}/cancel/`, {
+      method: 'POST'
+    })
+      .then(() => {
+        // Update reservation status in the list
+        setReservations(prevReservations => 
+          prevReservations.map(res => 
+            res.id === reservationId ? { ...res, status: 'cancelled' } : res
+          )
+        );
+        setActionSuccess('Бронирование успешно отменено');
+      })
+      .catch(error => {
+        console.error('Error cancelling reservation:', error);
+        setActionError('Не удалось отменить бронирование');
+      })
+      .finally(() => {
+        setActionLoading(null);
+      });
   };
 
-  useEffect(() => {
-    fetchReservations();
-  }, [user, authFetch]);
+  // Handle raising the blocker
+  const handleRaiseBlocker = (reservationId: number) => {
+    setActionLoading(reservationId);
+    setActionError(null);
+    setActionSuccess(null);
+    setBlockerAction('raise');
 
-  // Function to cancel a reservation
-  const cancelReservation = async (id: string) => {
-    if (!id) return;
-
-    setCancellingId(id);
-    setStatusMessage(null);
-
-    try {
-      await authFetch(`/api/parking/reservations/${id}/cancel/`, {
-        method: 'POST'
+    authFetch(`/api/parking/reservations/${reservationId}/raise_blocker/`, {
+      method: 'POST'
+    })
+      .then(() => {
+        // Update blocker status in the list
+        setReservations(prevReservations => 
+          prevReservations.map(res => 
+            res.id === reservationId ? { ...res, is_blocker_raised: true } : res
+          )
+        );
+        setActionSuccess('Блокиратор успешно поднят');
+      })
+      .catch(error => {
+        console.error('Error raising blocker:', error);
+        setActionError('Не удалось поднять блокиратор');
+      })
+      .finally(() => {
+        setActionLoading(null);
+        setBlockerAction(null);
       });
-
-      // Show success message
-      setStatusMessage({
-        type: 'success',
-        text: 'Бронирование успешно отменено'
-      });
-
-      // Refresh reservations list
-      fetchReservations();
-    } catch (e) {
-      // Show error message
-      if (axios.isAxiosError(e) && e.response) {
-        setStatusMessage({
-          type: 'error',
-          text: e.response.data?.detail || JSON.stringify(e.response.data) || `Ошибка ${e.response.status}`
-        });
-      } else {
-        setStatusMessage({
-          type: 'error',
-          text: 'Не удалось отменить бронирование'
-        });
-      }
-    } finally {
-      setCancellingId(null);
-    }
   };
 
-  // Filter reservations based on the selected filter
-  const filteredReservations = reservations.filter(reservation => {
-    if (filter === 'all') return true;
-    return reservation.status === filter;
-  });
+  // Handle lowering the blocker
+  const handleLowerBlocker = (reservationId: number) => {
+    setActionLoading(reservationId);
+    setActionError(null);
+    setActionSuccess(null);
+    setBlockerAction('lower');
 
-  // Group reservations by date
-  const groupedReservations = filteredReservations.reduce<Record<string, Reservation[]>>((groups, reservation) => {
-    // Extract date part from start_time (YYYY-MM-DD)
-    const date = reservation.start_time.split('T')[0];
+    authFetch(`/api/parking/reservations/${reservationId}/lower_blocker/`, {
+      method: 'POST'
+    })
+      .then(() => {
+        // Update blocker status in the list
+        setReservations(prevReservations => 
+          prevReservations.map(res => 
+            res.id === reservationId ? { ...res, is_blocker_raised: false } : res
+          )
+        );
+        setActionSuccess('Блокиратор успешно опущен');
+      })
+      .catch(error => {
+        console.error('Error lowering blocker:', error);
+        setActionError('Не удалось опустить блокиратор');
+      })
+      .finally(() => {
+        setActionLoading(null);
+        setBlockerAction(null);
+      });
+  };
 
-    if (!groups[date]) {
-      groups[date] = [];
-    }
-
-    groups[date].push(reservation);
-    return groups;
-  }, {});
-
-  // Sort dates and reservations within each date
-  const sortedDates = Object.keys(groupedReservations).sort();
-
-  // For each date, sort reservations by start_time
-  sortedDates.forEach(date => {
-    groupedReservations[date].sort((a, b) => 
-      new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
-    );
-  });
-
-  // Format date for display (e.g., "Monday, May 25, 2025")
+  // Format date
   const formatDate = (dateString: string) => {
-    const options: Intl.DateTimeFormatOptions = { 
-      weekday: 'long', 
-      year: 'numeric', 
-      month: 'long', 
-      day: 'numeric' 
-    };
-    return new Date(dateString).toLocaleDateString(undefined, options);
+    const date = new Date(dateString);
+    return date.toLocaleString('ru-RU', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
   };
 
-  // Format time for display (e.g., "14:30")
-  const formatTime = (dateTimeString: string) => {
-    const date = new Date(dateTimeString);
-    return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  // Get status display
+  const getStatusDisplay = (status: string) => {
+    switch (status) {
+      case 'pending':
+        return { text: 'Ожидание', color: 'bg-yellow-100 text-yellow-800' };
+      case 'active':
+        return { text: 'Активно', color: 'bg-green-100 text-green-800' };
+      case 'completed':
+        return { text: 'Завершено', color: 'bg-blue-100 text-blue-800' };
+      case 'cancelled':
+        return { text: 'Отменено', color: 'bg-red-100 text-red-800' };
+      default:
+        return { text: status, color: 'bg-gray-100 text-gray-800' };
+    }
   };
 
-  if (loading) return <div className="p-4">Загрузка бронирований...</div>;
-  if (error) return <div className="p-4 text-red-500">Ошибка: {error}</div>;
-  if (reservations.length === 0) return <div className="p-4">У вас нет бронирований</div>;
-
-  // Helper function to check if a reservation can be cancelled
-  const canCancel = (reservation: Reservation) => {
-    return reservation.status === 'pending' || reservation.status === 'active';
+  // Get payment method display
+  const getPaymentMethodDisplay = (type: string) => {
+    switch (type) {
+      case 'card':
+        return 'Банковская карта';
+      case 'wallet':
+        return 'Кошелек';
+      default:
+        return type;
+    }
   };
 
   return (
     <div className="p-4">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold">Мои бронирования</h1>
-        <a 
-          href="/map" 
+        <a
+          href="/map"
           className="bg-green-500 hover:bg-green-600 text-white py-2 px-4 rounded-lg flex items-center gap-2"
         >
           <span>🗺️</span> Вернуться к карте
@@ -163,116 +210,201 @@ export default function MyReservationsPage() {
       </div>
 
       {/* Filter buttons */}
-      <div className="flex gap-2 mb-4">
-        <button 
-          onClick={() => setFilter('all')} 
-          className={`px-4 py-2 rounded-lg ${
-            filter === 'all' 
-              ? 'bg-blue-500 text-white' 
-              : 'bg-gray-200 hover:bg-gray-300'
-          }`}
-        >
-          Все
-        </button>
-        <button 
-          onClick={() => setFilter('active')} 
-          className={`px-4 py-2 rounded-lg ${
-            filter === 'active' 
-              ? 'bg-green-500 text-white' 
-              : 'bg-gray-200 hover:bg-gray-300'
-          }`}
-        >
-          Активные
-        </button>
-        <button 
-          onClick={() => setFilter('pending')} 
-          className={`px-4 py-2 rounded-lg ${
-            filter === 'pending' 
-              ? 'bg-yellow-500 text-white' 
-              : 'bg-gray-200 hover:bg-gray-300'
-          }`}
-        >
-          Ожидающие
-        </button>
-        <button 
-          onClick={() => setFilter('cancelled')} 
-          className={`px-4 py-2 rounded-lg ${
-            filter === 'cancelled' 
-              ? 'bg-red-500 text-white' 
-              : 'bg-gray-200 hover:bg-gray-300'
-          }`}
-        >
-          Отмененные
-        </button>
+      <div className="mb-6">
+        <div className="text-sm font-medium text-gray-700 mb-2">Фильтр по статусу:</div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => setStatusFilter('all')}
+            className={`px-3 py-1 rounded-full text-sm ${
+              statusFilter === 'all'
+                ? 'bg-blue-500 text-white'
+                : 'bg-gray-200 text-gray-800 hover:bg-gray-300'
+            }`}
+          >
+            Все
+          </button>
+          <button
+            onClick={() => setStatusFilter('pending')}
+            className={`px-3 py-1 rounded-full text-sm ${
+              statusFilter === 'pending'
+                ? 'bg-yellow-500 text-white'
+                : 'bg-gray-200 text-gray-800 hover:bg-gray-300'
+            }`}
+          >
+            Ожидание
+          </button>
+          <button
+            onClick={() => setStatusFilter('active')}
+            className={`px-3 py-1 rounded-full text-sm ${
+              statusFilter === 'active'
+                ? 'bg-green-500 text-white'
+                : 'bg-gray-200 text-gray-800 hover:bg-gray-300'
+            }`}
+          >
+            Активные
+          </button>
+          <button
+            onClick={() => setStatusFilter('completed')}
+            className={`px-3 py-1 rounded-full text-sm ${
+              statusFilter === 'completed'
+                ? 'bg-blue-500 text-white'
+                : 'bg-gray-200 text-gray-800 hover:bg-gray-300'
+            }`}
+          >
+            Завершенные
+          </button>
+          <button
+            onClick={() => setStatusFilter('cancelled')}
+            className={`px-3 py-1 rounded-full text-sm ${
+              statusFilter === 'cancelled'
+                ? 'bg-red-500 text-white'
+                : 'bg-gray-200 text-gray-800 hover:bg-gray-300'
+            }`}
+          >
+            Отмененные
+          </button>
+        </div>
       </div>
 
-      {/* Status message */}
-      {statusMessage && (
-        <div 
-          className={`p-4 mb-4 rounded-lg ${
-            statusMessage.type === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-          }`}
-        >
-          {statusMessage.type === 'success' ? '✅ ' : '❌ '}
-          {statusMessage.text}
+      {actionSuccess && (
+        <div className="bg-green-100 p-4 rounded-lg text-green-800 mb-4">
+          <p>{actionSuccess}</p>
         </div>
       )}
 
-      {filteredReservations.length === 0 && (
-        <div className="p-4 bg-yellow-100 text-yellow-800 rounded-lg mb-4">
-          Нет бронирований с выбранным статусом. Выберите другой фильтр.
+      {actionError && (
+        <div className="bg-red-100 p-4 rounded-lg text-red-800 mb-4">
+          <p>{actionError}</p>
         </div>
       )}
 
-      {sortedDates.map(date => (
-        <div key={date} className="mb-8">
-          <h2 className="text-xl font-semibold mb-4">{formatDate(date)}</h2>
-
-          <div className="space-y-4">
-            {groupedReservations[date].map((reservation, index) => (
-              <div key={reservation.id || index} className="reservation-item border rounded-lg p-4 shadow-sm">
+      {loading ? (
+        <div className="flex justify-center items-center p-8">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+        </div>
+      ) : error ? (
+        <div className="bg-red-100 p-4 rounded-lg text-red-800">
+          <p>{error}</p>
+        </div>
+      ) : reservations.length === 0 ? (
+        <div className="bg-gray-100 p-4 rounded-lg">
+          <p>У вас пока нет бронирований.</p>
+          <a 
+            href="/map" 
+            className="mt-2 inline-block text-blue-500 hover:text-blue-700"
+          >
+            Забронировать парковочное место
+          </a>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {reservations.map(reservation => {
+            const status = getStatusDisplay(reservation.status);
+            return (
+              <div key={reservation.id} className="bg-white p-4 rounded-lg shadow">
                 <div className="flex justify-between items-start">
                   <div>
-                    <h3 className="font-medium">Парковочное место: {reservation.spot_name || reservation.parking_spot}</h3>
-                    <p>Время начала: {formatTime(reservation.start_time)}</p>
-                    <p>Время окончания: {formatTime(reservation.end_time)}</p>
+                    <h2 className="text-lg font-semibold">
+                      Место {reservation.parking_spot?.name || (reservation.parking_spot?.reference ? reservation.parking_spot.reference.slice(0, 8) : 'Неизвестно')}
+                    </h2>
+                    <p className="text-sm text-gray-500">
+                      Создано: {formatDate(reservation.created_at)}
+                    </p>
                   </div>
-                  <div className="flex flex-col items-end gap-2">
-                    <span className={`px-2 py-1 rounded-full text-sm ${
-                      reservation.status === 'active' ? 'bg-green-100 text-green-800' :
-                      reservation.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-                      reservation.status === 'cancelled' ? 'bg-red-100 text-red-800' :
-                      'bg-gray-100 text-gray-800'
-                    }`}>
-                      {reservation.status || 'pending'}
-                    </span>
+                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${status.color}`}>
+                    {status.text}
+                  </span>
+                </div>
+
+                <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-2">
+                  <div>
+                    <p className="text-sm text-gray-600">Начало:</p>
+                    <p className="font-medium">{formatDate(reservation.start_time)}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600">Окончание:</p>
+                    <p className="font-medium">{formatDate(reservation.end_time)}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600">Стоимость:</p>
+                    <p className="font-medium">{reservation.total_price} ₸</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600">Способ оплаты:</p>
+                    <p className="font-medium">{getPaymentMethodDisplay(reservation.payment_method_type)}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600">Статус занятости:</p>
+                    <p className={`font-medium ${reservation.is_occupied ? 'text-red-600' : 'text-green-600'}`}>
+                      {reservation.is_occupied ? 'Занято' : 'Свободно'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600">Статус блокиратора:</p>
+                    <p className={`font-medium ${reservation.is_blocker_raised ? 'text-green-600' : 'text-red-600'}`}>
+                      {reservation.is_blocker_raised ? 'Поднят' : 'Опущен'}
+                    </p>
                   </div>
                 </div>
 
-                <div className="mt-3 flex justify-between items-center">
-                  {reservation.price && (
-                    <p className="text-gray-700">Цена: {reservation.price} ₸</p>
+                <div className="mt-4 flex justify-end gap-2">
+                  {/* Blocker control buttons - only show if user can control blocker */}
+                  {reservation.can_control_blocker && (
+                    <>
+                      {reservation.is_blocker_raised ? (
+                        <button
+                          onClick={() => handleLowerBlocker(reservation.id)}
+                          disabled={actionLoading === reservation.id}
+                          className={`px-4 py-2 rounded text-white ${
+                            actionLoading === reservation.id && blockerAction === 'lower'
+                              ? 'bg-gray-400 cursor-not-allowed'
+                              : 'bg-blue-500 hover:bg-blue-600'
+                          }`}
+                        >
+                          {actionLoading === reservation.id && blockerAction === 'lower' 
+                            ? 'Опускание...' 
+                            : 'Опустить блокиратор'}
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleRaiseBlocker(reservation.id)}
+                          disabled={actionLoading === reservation.id}
+                          className={`px-4 py-2 rounded text-white ${
+                            actionLoading === reservation.id && blockerAction === 'raise'
+                              ? 'bg-gray-400 cursor-not-allowed'
+                              : 'bg-green-500 hover:bg-green-600'
+                          }`}
+                        >
+                          {actionLoading === reservation.id && blockerAction === 'raise' 
+                            ? 'Поднятие...' 
+                            : 'Поднять блокиратор'}
+                        </button>
+                      )}
+                    </>
                   )}
 
-                  {canCancel(reservation) && (
+                  {/* Cancel button - only show for pending or active reservations */}
+                  {(reservation.status === 'pending' || reservation.status === 'active') && (
                     <button
-                      onClick={() => reservation.id && cancelReservation(reservation.id)}
-                      disabled={cancellingId === reservation.id}
-                      className={`px-3 py-1.5 rounded text-white text-sm ${
-                        cancellingId === reservation.id
+                      onClick={() => handleCancel(reservation.id)}
+                      disabled={actionLoading === reservation.id}
+                      className={`px-4 py-2 rounded text-white ${
+                        actionLoading === reservation.id && blockerAction === null
                           ? 'bg-gray-400 cursor-not-allowed'
                           : 'bg-red-500 hover:bg-red-600'
                       }`}
                     >
-                      {cancellingId === reservation.id ? 'Отмена...' : 'Отменить бронирование'}
+                      {actionLoading === reservation.id && blockerAction === null 
+                        ? 'Отмена...' 
+                        : 'Отменить бронирование'}
                     </button>
                   )}
                 </div>
               </div>
-            ))}
-          </div>
+            );
+          })}
         </div>
-      ))}
+      )}
     </div>
   );
 }

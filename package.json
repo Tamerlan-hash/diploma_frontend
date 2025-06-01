@@ -9,10 +9,15 @@
     "lint": "next lint",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
-    "test:e2e:debug": "playwright test --debug"
+    "test:e2e:debug": "playwright test --debug",
+    "check-env": "node scripts/check-env.js",
+    "test:docker-env": "scripts\\docker-env-test.bat",
+    "test:docker-env-file": "scripts\\test-docker-env-file.bat"
   },
   "dependencies": {
     "axios": "^1.9.0",
+    "js-cookie": "^3.0.5",
+    "jose": "^5.2.3",
     "jwt-decode": "^4.0.0",
     "leaflet": "^1.9.4",
     "next": "15.3.1",

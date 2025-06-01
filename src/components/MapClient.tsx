@@ -1,18 +1,20 @@
 'use client';
 
 import { useAuth } from '@/context/AuthContext';
-import axios from 'axios';
 import type { LatLngBoundsExpression, LatLngExpression, PathOptions } from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { MapContainer, Marker, Polygon, Popup, TileLayer, useMap } from 'react-leaflet';
-import PaymentProcessor from './PaymentProcessor';
+import { Modal } from './Modal';
 
 interface ParkingSpot {
+  id: number;
   reference: string;
   name: string;
   is_lock: boolean;
+  is_occupied: boolean;
+  is_blocker_raised: boolean;
   latitude1: number;
   latitude2: number;
   latitude3: number;
@@ -21,20 +23,22 @@ interface ParkingSpot {
   longitude2: number;
   longitude3: number;
   longitude4: number;
-}
-
-interface UserSubscription {
-  id: number;
-  plan_details: {
-    name: string;
-    discount_percentage: number;
+  sensor?: {
+    reference: string;
+    is_occupied: boolean;
+  };
+  blocker?: {
+    reference: string;
+    is_raised: boolean;
   };
 }
 
-interface Reservation {
-  parking_spot: string;
-  start_time: string;
-  end_time: string;
+interface ReservationFormData {
+  startTime: string;
+  endTime: string;
+  paymentMethod: string;
+  selectedHours: Array<{start: string, end: string}>;
+  useHourlyBooking: boolean;
 }
 
 const FreeSpotsCluster: React.FC<{
@@ -91,47 +95,30 @@ export function MapClient() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Booking state
-  const [selectedSpot, setSelectedSpot] = useState<ParkingSpot | null>(null);
-  const [startTime, setStartTime] = useState<string>('');
-  const [endTime, setEndTime] = useState<string>('');
-  const [bookingError, setBookingError] = useState<string | null>(null);
-  const [bookingSuccess, setBookingSuccess] = useState<string | null>(null);
-  const [isBooking, setIsBooking] = useState(false);
-
-  // Payment state
-  const [showPayment, setShowPayment] = useState(false);
-  const [reservationId, setReservationId] = useState<string>('');
-  const [paymentAmount, setPaymentAmount] = useState<number>(0);
-
-  // Subscription state
-  const [activeSubscription, setActiveSubscription] = useState<UserSubscription | null>(null);
-  const [originalPrice, setOriginalPrice] = useState<number>(0);
-  const [discountedPrice, setDiscountedPrice] = useState<number>(0);
-
-  // Available windows state
-  interface AvailableWindow {
-    start_time: string;
-    end_time: string;
-    status?: string;
-    reason?: string;
-  }
-  const [availableWindows, setAvailableWindows] = useState<AvailableWindow[]>([]);
-  const [isLoadingWindows, setIsLoadingWindows] = useState(false);
-  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
-
-  // Multi-hour selection state
-  const [selectedHourIndices, setSelectedHourIndices] = useState<number[]>([]);
-
-  // Utility function to format dates in local timezone (YYYY-MM-DDTHH:MM)
-  const formatInLocalTimezone = (date: Date) => {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    const hours = String(date.getHours()).padStart(2, '0');
-    const minutes = String(date.getMinutes()).padStart(2, '0');
-    return `${year}-${month}-${day}T${hours}:${minutes}`;
+  // Helper function to get current time in Almaty timezone (UTC+6)
+  const getAlmatyTime = () => {
+    const now = new Date();
+    // Create a date string with the UTC+6 timezone offset
+    const almatyTimeStr = new Date(now.getTime() + (6 * 60 * 60 * 1000)).toISOString();
+    return new Date(almatyTimeStr);
   };
+
+  // Reservation state
+  const [selectedSpot, setSelectedSpot] = useState<ParkingSpot | null>(null);
+  const [showReservationModal, setShowReservationModal] = useState(false);
+  const [reservationForm, setReservationForm] = useState<ReservationFormData>({
+    startTime: '',
+    endTime: '',
+    paymentMethod: '',
+    selectedHours: [],
+    useHourlyBooking: false
+  });
+  const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
+  const [reservationLoading, setReservationLoading] = useState(false);
+  const [reservationError, setReservationError] = useState<string | null>(null);
+  const [reservationSuccess, setReservationSuccess] = useState(false);
+  const [reservationId, setReservationId] = useState<string | null>(null);
+  const [availableTimeSlots, setAvailableTimeSlots] = useState<Array<{start: string, end: string}>>([]);
 
   const center: LatLngExpression = [43.23517, 76.90991];
   const bounds: LatLngBoundsExpression = [
@@ -145,274 +132,86 @@ export function MapClient() {
     if (!user) router.push('/auth/login');
   }, [user, router]);
 
-  // Загрузка данных о парковке и активной подписке
+  // Загрузка данных о парковке
   useEffect(() => {
     setLoading(true);
     setError(null);
 
     // Fetch parking spots
-    const fetchSpots = authFetch<ParkingSpot[]>('/api/sensor/');
-
-    // Fetch active subscription
-    const fetchSubscription = authFetch<UserSubscription>('/api/subscriptions/subscriptions/active/')
-      .then(res => {
-        setActiveSubscription(res.data);
-        return res.data;
-      })
-      .catch(err => {
-        // If no active subscription or error, just continue
-        console.log('No active subscription or error fetching it:', err);
-        setActiveSubscription(null);
-        return null;
-      });
-
-    // Wait for both requests to complete
-    Promise.all([fetchSpots, fetchSubscription])
-      .then(([spotsRes]) => {
+    authFetch<ParkingSpot[]>('/api/sensor/')
+      .then((spotsRes) => {
         setSpots(spotsRes.data);
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, [authFetch]);
 
-  // Fetch available windows for a parking spot on a specific date
-  const fetchAvailableWindows = async (spotId: string, date: string) => {
-    setIsLoadingWindows(true);
-    setBookingError(null);
-    setSelectedHourIndices([]); // Reset selected hours when fetching new windows
+  // Fetch payment methods and available time slots when modal opens
+  useEffect(() => {
+    if (selectedSpot && showReservationModal) {
+      // Set default start and end times (1 hour in future for start time, 2 hours in future for end time)
+      const now = getAlmatyTime(); // Use Almaty timezone
+      const oneHourLater = new Date(now.getTime() + 60 * 60 * 1000);
+      const twoHoursLater = new Date(now.getTime() + 2 * 60 * 60 * 1000);
 
-    try {
-      const response = await authFetch<AvailableWindow[]>(
-        `/api/parking/parking-spot/${spotId}/available-windows/?date=${date}`
-      );
-
-      setAvailableWindows(response.data);
-
-      // Find the first available window (not blocked)
-      const firstAvailableWindow = response.data.find(window => window.status !== 'blocked');
-
-      // If there are available windows, set default start and end times to the first available window
-      if (firstAvailableWindow) {
-        setStartTime(new Date(firstAvailableWindow.start_time).toISOString().slice(0, 16));
-        setEndTime(new Date(firstAvailableWindow.end_time).toISOString().slice(0, 16));
-      } else {
-        // If all windows are blocked, clear the start and end times
-        setStartTime('');
-        setEndTime('');
-      }
-    } catch (error) {
-      console.error('Error fetching available windows:', error);
-      if (axios.isAxiosError(error) && error.response) {
-        setBookingError(`Ошибка при загрузке доступных окон: ${error.response.data?.detail || error.message}`);
-      } else {
-        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-        // @ts-expect-error
-        setBookingError(`Ошибка при загрузке доступных окон: ${error.message}`);
-      }
-    } finally {
-      setIsLoadingWindows(false);
-    }
-  };
-
-  // Handle hour selection for multi-hour booking
-  const handleHourSelection = (index: number) => {
-    // If no hours are selected yet, select this one
-    if (selectedHourIndices.length === 0) {
-      setSelectedHourIndices([index]);
-
-      // Set start and end times for this single hour
-      const window = availableWindows[index];
-      setStartTime(new Date(window.start_time).toISOString().slice(0, 16));
-      setEndTime(new Date(window.end_time).toISOString().slice(0, 16));
-      return;
-    }
-
-    // Sort current selections to find min and max
-    const sortedIndices = [...selectedHourIndices].sort((a, b) => a - b);
-    const minIndex = sortedIndices[0];
-    const maxIndex = sortedIndices[sortedIndices.length - 1];
-
-    // If clicking on an already selected hour, deselect everything except this one
-    if (selectedHourIndices.includes(index)) {
-      setSelectedHourIndices([index]);
-
-      // Set start and end times for this single hour
-      const window = availableWindows[index];
-      setStartTime(new Date(window.start_time).toISOString().slice(0, 16));
-      setEndTime(new Date(window.end_time).toISOString().slice(0, 16));
-      return;
-    }
-
-    // Check if the new selection is adjacent to the current selection
-    if (index === minIndex - 1) {
-      // Adding an hour before the current selection
-      const newIndices = [index, ...sortedIndices];
-      setSelectedHourIndices(newIndices);
-
-      // Update start time (end time stays the same)
-      const window = availableWindows[index];
-      setStartTime(new Date(window.start_time).toISOString().slice(0, 16));
-    } else if (index === maxIndex + 1) {
-      // Adding an hour after the current selection
-      const newIndices = [...sortedIndices, index];
-      setSelectedHourIndices(newIndices);
-
-      // Update end time (start time stays the same)
-      const window = availableWindows[index];
-      setEndTime(new Date(window.end_time).toISOString().slice(0, 16));
-    } else {
-      // Not adjacent, start a new selection with just this hour
-      setSelectedHourIndices([index]);
-
-      // Set start and end times for this single hour
-      const window = availableWindows[index];
-      setStartTime(new Date(window.start_time).toISOString().slice(0, 16));
-      setEndTime(new Date(window.end_time).toISOString().slice(0, 16));
-    }
-  };
-
-  // Handle spot selection
-  const handleSpotSelect = (spot: ParkingSpot) => {
-    if (spot.is_lock) {
-      setBookingError('Это место уже занято');
-      return;
-    }
-
-    setSelectedSpot(spot);
-    setBookingError(null);
-    setBookingSuccess(null);
-    setSelectedHourIndices([]); // Reset selected hours
-
-    // Set today's date as the default selected date
-    const today = new Date().toISOString().split('T')[0];
-    setSelectedDate(today);
-
-    // Fetch available windows for today
-    fetchAvailableWindows(spot.reference, today);
-
-    // Set default times (current time + 15 minutes for start, + 1 hour 15 minutes for end)
-    // These will be overridden if available windows are found
-    const now = new Date();
-    const startDateTime = new Date(now.getTime() + 15 * 60 * 1000); // Current time + 15 minutes
-    const endDateTime = new Date(now.getTime() + 75 * 60 * 1000);   // Current time + 1 hour 15 minutes
-
-    setStartTime(formatInLocalTimezone(startDateTime));
-    setEndTime(formatInLocalTimezone(endDateTime));
-  };
-
-  // Handle booking submission
-  const handleBookingSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!selectedSpot) {
-      setBookingError('Выберите парковочное место');
-      return;
-    }
-
-    if (!startTime || !endTime) {
-      setBookingError('Укажите время начала и окончания');
-      return;
-    }
-
-    const startDate = new Date(startTime);
-    const endDate = new Date(endTime);
-
-    if (startDate >= endDate) {
-      setBookingError('Время окончания должно быть позже времени начала');
-      return;
-    }
-
-    // Check if start time is in the past
-    const now = new Date();
-    if (startDate < now) {
-      setBookingError('Время начала не может быть в прошлом');
-      return;
-    }
-
-    setIsBooking(true);
-    setBookingError(null);
-    setBookingSuccess(null);
-
-    try {
-      const reservation: Reservation = {
-        parking_spot: selectedSpot.reference,
-        start_time: formatInLocalTimezone(startDate),  // Format in local timezone: YYYY-MM-DDTHH:MM
-        end_time: formatInLocalTimezone(endDate)       // Format in local timezone: YYYY-MM-DDTHH:MM
+      // Format dates for datetime-local input
+      const formatDate = (date: Date) => {
+        return date.toISOString().slice(0, 16); // Format: YYYY-MM-DDTHH:MM
       };
 
-      // Log the reservation data for debugging
-      console.log('Sending reservation:', JSON.stringify(reservation));
-
-      const response = await authFetch('/api/parking/reservations/', {
-        method: 'POST',
-        data: reservation
+      setReservationForm({
+        startTime: formatDate(oneHourLater),
+        endTime: formatDate(twoHoursLater),
+        paymentMethod: '',
+        selectedHours: [],
+        useHourlyBooking: false
       });
 
-      // Get the reservation ID and price from the response
-      const createdReservation = response.data;
-      const reservId = createdReservation.id;
-      const price = createdReservation.total_price || 0; // Use 0 as fallback instead of hardcoded 1000
+      // Fetch payment methods
+      authFetch('/api/payments/methods/')
+        .then(response => {
+          setPaymentMethods(response.data);
+        })
+        .catch(error => {
+          console.error('Error fetching payment methods:', error);
+        });
 
-      // If we have an active subscription, show the discount information
-      if (activeSubscription) {
-        const discountPercentage = activeSubscription.plan_details.discount_percentage;
-        // Calculate the original price (before discount)
-        const originalPriceValue = price / (1 - (discountPercentage / 100));
-        setOriginalPrice(originalPriceValue);
-        setDiscountedPrice(price);
+      // Fetch available time slots for the selected parking spot
+      // Using the current date as the start date for available windows
+      const today = getAlmatyTime(); // Use Almaty timezone
+      today.setHours(0, 0, 0, 0); // Start of today
+      const formattedDate = today.toISOString().split('T')[0]; // Format: YYYY-MM-DD
 
-        setBookingSuccess(`Бронирование успешно создано! Применена скидка ${discountPercentage}%. Переход к оплате...`);
+      // Only fetch available windows if selectedSpot.id is defined
+      if (selectedSpot && selectedSpot.id) {
+        authFetch(`/api/parking/parking-spot/${selectedSpot.id}/available-windows/?date=${formattedDate}`)
+          .then(response => {
+            setAvailableTimeSlots(response.data.available_windows || []);
+          })
+          .catch(error => {
+            console.error('Error fetching available time slots:', error);
+            setAvailableTimeSlots([]);
+          });
       } else {
-        setBookingSuccess('Бронирование успешно создано! Переход к оплате...');
+        console.warn('Cannot fetch available time slots: parking spot ID is undefined');
+        setAvailableTimeSlots([]);
       }
-
-      // Set payment state
-      setReservationId(reservId);
-      setPaymentAmount(price);
-      setShowPayment(true);
-
-      // Refresh parking spots
-      const spotsRes = await authFetch<ParkingSpot[]>('/api/sensor/');
-      setSpots(spotsRes.data);
-    } catch (e) {
-      if (axios.isAxiosError(e) && e.response) {
-        console.error('Reservation error:', e.response.data);
-        setBookingError(e.response.data?.detail || JSON.stringify(e.response.data) || `Ошибка ${e.response.status}`);
-      } else {
-        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-        // @ts-expect-error
-        setBookingError(e.message);
-      }
-    } finally {
-      setIsBooking(false);
     }
-  };
+  }, [selectedSpot, showReservationModal, authFetch]);
 
-  // Cancel booking
-  const handleCancelBooking = () => {
-    setSelectedSpot(null);
-    setBookingError(null);
-    setBookingSuccess(null);
-  };
-
-  // Payment handlers
-  const handlePaymentSuccess = () => {
-    // Reset all states and show success message
-    setShowPayment(false);
-    setSelectedSpot(null);
-    setReservationId('');
-    setPaymentAmount(0);
-    setBookingSuccess('Оплата успешно выполнена!');
-
-    // Optionally redirect to reservations page
-    router.push('/parking/my-reservations');
-  };
-
-  const handlePaymentCancel = () => {
-    // Just hide the payment processor but keep the reservation
-    setShowPayment(false);
-    setBookingSuccess('Бронирование создано, но не оплачено. Вы можете оплатить его позже в личном кабинете.');
-  };
+  // Новый: периодический рефреш статусов парковочных мест (каждые 30 сек)
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      try {
+        const spotsRes = await authFetch<ParkingSpot[]>('/api/sensor/');
+        setSpots(spotsRes.data);
+      } catch (e) {
+        // Не ломаем UI, просто логируем
+        console.error('Ошибка обновления статусов парковки:', e);
+      }
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [authFetch]);
 
   if (loading) return <div>Загрузка карты…</div>;
   if (error) return <div>Ошибка: {error}</div>;
@@ -420,17 +219,6 @@ export function MapClient() {
 
   return (
     <div className="relative w-full h-[calc(100vh-64px)] md:h-[calc(100vh-80px)]">
-      <div className="absolute top-2 left-2 md:top-4 md:left-16 z-[1000] bg-white px-3 py-2 md:px-4 md:py-2 rounded shadow-md flex items-center gap-2">
-        <a 
-          href="/parking/my-reservations" 
-          className="text-green-600 font-bold flex items-center gap-1 text-sm md:text-base"
-        >
-          <span className="text-lg md:text-xl">📋</span> 
-          <span className="hidden sm:inline">View My Reservations</span>
-          <span className="sm:hidden">My Reservations</span>
-        </a>
-      </div>
-
       <MapContainer
         center={center}
         zoom={zoomThreshold + 1}
@@ -462,30 +250,41 @@ export function MapClient() {
               positions={positions} 
               pathOptions={opts}
               eventHandlers={{
-                click: () => handleSpotSelect(spot)
+                click: () => {
+                  if (!spot.is_lock) {
+                    setSelectedSpot(spot);
+                    setShowReservationModal(true);
+                  }
+                }
               }}
             >
               <Popup>
                 {spot.name || `Место ${spot.reference.slice(0, 8)}`}
                 <br />
                 Состояние: {spot.is_lock ? 'Занято' : 'Свободно'}
+                <br />
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`w-3 h-3 rounded-full ${spot.is_occupied ? 'bg-red-500' : 'bg-green-500'}`}
+                  ></span>
+                  <span>Датчик: {spot.is_occupied ? 'Занято' : 'Свободно'}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`w-3 h-3 rounded-full ${spot.is_blocker_raised ? 'bg-blue-500' : 'bg-gray-500'}`}
+                  ></span>
+                  <span>Блокер: {spot.is_blocker_raised ? 'Поднят' : 'Опущен'}</span>
+                </div>
                 {!spot.is_lock && (
-                  <div>
-                    <button 
-                      onClick={() => handleSpotSelect(spot)}
-                      style={{ 
-                        marginTop: '10px', 
-                        padding: '5px 10px', 
-                        backgroundColor: '#4CAF50', 
-                        color: 'white', 
-                        border: 'none', 
-                        borderRadius: '4px', 
-                        cursor: 'pointer' 
-                      }}
-                    >
-                      Забронировать
-                    </button>
-                  </div>
+                  <button 
+                    className="mt-2 bg-blue-500 hover:bg-blue-600 text-white py-1 px-2 rounded text-sm"
+                    onClick={() => {
+                      setSelectedSpot(spot);
+                      setShowReservationModal(true);
+                    }}
+                  >
+                    Забронировать
+                  </button>
                 )}
               </Popup>
             </Polygon>
@@ -493,177 +292,319 @@ export function MapClient() {
         })}
       </MapContainer>
 
-      {/* Booking Form */}
-      {selectedSpot && !showPayment && (
-        <div className="absolute top-2 right-2 md:top-5 md:right-5 bg-white p-4 md:p-5 rounded-lg shadow-lg z-[1000] w-[calc(100%-16px)] md:w-auto md:max-w-md mx-2 md:mx-0">
-          <h3 className="text-lg md:text-xl font-semibold mb-2">Бронирование парковочного места</h3>
-          <p className="mb-3">Место: {selectedSpot.name || `Место ${selectedSpot.reference.slice(0, 8)}`}</p>
+      {/* Reservation Modal */}
+      {selectedSpot && (
+        <Modal
+          isOpen={showReservationModal}
+          onClose={() => {
+            setShowReservationModal(false);
+            setReservationError(null);
+            setReservationSuccess(false);
+          }}
+          title={`Бронирование места ${selectedSpot.name || selectedSpot.reference.slice(0, 8)}`}
+          size="lg"
+        >
+          <div className="space-y-4">
+            {reservationSuccess ? (
+              <div className="bg-green-100 p-4 rounded-lg text-green-800">
+                <p className="font-semibold">Бронирование успешно создано!</p>
+                <p>Вы можете просмотреть детали в разделе "Мои бронирования".</p>
+                <button
+                  onClick={() => router.push('/parking/my-reservations')}
+                  className="mt-4 bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded"
+                >
+                  Перейти к моим бронированиям
+                </button>
+              </div>
+            ) : (
+              <>
+                {reservationError && (
+                  <div className="bg-red-100 p-4 rounded-lg text-red-800">
+                    <p>{reservationError}</p>
+                  </div>
+                )}
 
-          <div className="bg-blue-50 p-3 rounded border border-blue-200 mb-4">
-            <p className="m-0 font-medium text-blue-700 text-sm md:text-base">
-              ⏰ Выберите один или несколько последовательных часов для бронирования
-            </p>
-          </div>
+                <form onSubmit={(e) => {
+                  e.preventDefault();
 
-          {bookingError && (
-            <div className="text-red-600 mb-3 p-2 bg-red-50 rounded">{bookingError}</div>
-          )}
-
-          {bookingSuccess && (
-            <div className="text-green-600 mb-3 p-2 bg-green-50 rounded">{bookingSuccess}</div>
-          )}
-
-          <form onSubmit={handleBookingSubmit}>
-            {/* Date selector */}
-            <div className="mb-4">
-              <label className="block mb-1 font-medium text-gray-700">Выберите дату:</label>
-              <input
-                type="date"
-                value={selectedDate}
-                onChange={(e) => {
-                  const newDate = e.target.value;
-                  setSelectedDate(newDate);
-                  if (selectedSpot) {
-                    fetchAvailableWindows(selectedSpot.reference, newDate);
+                  // Validate form
+                  if (!reservationForm.paymentMethod) {
+                    setReservationError('Выберите способ оплаты');
+                    return;
                   }
-                }}
-                className="w-full p-3 border border-gray-300 rounded text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
 
-            {/* Available windows section */}
-            <div className="mb-4">
-              <label className="block mb-1 font-medium text-gray-700">Выберите часы для бронирования:</label>
+                  if (reservationForm.useHourlyBooking && reservationForm.selectedHours.length === 0) {
+                    setReservationError('Выберите хотя бы один час для бронирования');
+                    return;
+                  }
 
-              {isLoadingWindows ? (
-                <div className="text-center p-4">Загрузка доступных часов...</div>
-              ) : availableWindows.length === 0 ? (
-                <div className="text-center p-4 text-red-600">
-                  Нет доступных часов на выбранную дату
-                </div>
-              ) : (
-                <div className="max-h-[250px] md:max-h-[200px] overflow-y-auto border border-gray-300 rounded">
-                  {availableWindows.map((window, index) => {
-                    const startDateTime = new Date(window.start_time);
-                    const endDateTime = new Date(window.end_time);
-                    const formattedStart = startDateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                    const formattedEnd = endDateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                    const isSelected = selectedHourIndices.includes(index);
-                    const isBlocked = window.status === 'blocked';
-                    const isPastTime = window.reason === 'past_time';
-                    const isAlreadyBooked = window.reason === 'already_booked';
+                  if (!reservationForm.useHourlyBooking) {
+                    const startTime = new Date(reservationForm.startTime);
+                    const endTime = new Date(reservationForm.endTime);
+                    // Add a 5-minute buffer to account for form filling time
+                    const now = getAlmatyTime(); // Use Almaty timezone
+                    const bufferTime = new Date(now.getTime() - 5 * 60 * 1000);
 
-                    return (
-                      <div 
-                        key={index}
-                        onClick={() => !isBlocked && handleHourSelection(index)}
-                        className={`p-3 md:p-3 border-b border-gray-200 last:border-b-0 flex items-center justify-between transition-colors
-                          ${isBlocked ? 'cursor-not-allowed opacity-70 bg-red-50' : 'cursor-pointer'}
-                          ${isSelected ? 'bg-green-50' : ''}
-                          ${!isSelected && !isBlocked ? 'hover:bg-gray-100' : ''}
-                        `}
-                      >
-                        <div className="flex flex-col">
-                          <span className={`font-medium ${isBlocked ? 'line-through text-gray-500' : ''}`}>
-                            {formattedStart} - {formattedEnd}
-                          </span>
-                          {isBlocked && (
-                            <span className="text-xs text-red-600 mt-1">
-                              {isPastTime ? '⏱️ Время уже прошло' : '🚫 Уже забронировано'}
-                            </span>
-                          )}
-                        </div>
-                        <span className={`text-xs px-2 py-1 rounded text-white
-                          ${isBlocked 
-                            ? (isPastTime ? 'bg-gray-500' : 'bg-red-500') 
-                            : (isSelected ? 'bg-green-500' : 'bg-gray-500')
-                          }`}
-                        >
-                          1 час
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
 
-              {selectedHourIndices.length > 0 && (
-                <div className="mt-3 p-2 bg-green-50 rounded border border-green-200">
-                  <p className="m-0 font-medium text-green-800">
-                    Выбрано: {selectedHourIndices.length} {
-                      selectedHourIndices.length === 1 ? 'час' : 
-                      selectedHourIndices.length < 5 ? 'часа' : 'часов'
+                    if (endTime <= startTime) {
+                      setReservationError('Время окончания должно быть позже времени начала');
+                      return;
                     }
-                  </p>
-                </div>
-              )}
-            </div>
+                  }
 
-            {/* Hidden time inputs - we keep these for form submission but don't show them to users */}
-            <input
-              type="hidden"
-              value={startTime}
-              name="start_time"
-            />
-            <input
-              type="hidden"
-              value={endTime}
-              name="end_time"
-            />
+                  // Create reservation
+                  setReservationLoading(true);
+                  setReservationError(null);
 
-            <div className="flex justify-between gap-3 mt-4">
-              <button
-                type="button"
-                onClick={handleCancelBooking}
-                className="px-4 py-3 bg-red-500 hover:bg-red-600 text-white rounded font-medium w-1/2 text-center"
-              >
-                Отмена
-              </button>
+                  // Check if selectedSpot is available
+                  if (!selectedSpot) {
+                    setReservationError('Не удалось определить парковочное место. Пожалуйста, попробуйте еще раз.');
+                    setReservationLoading(false);
+                    return;
+                  }
 
-              <button
-                type="submit"
-                disabled={isBooking}
-                className={`px-4 py-3 rounded font-medium w-1/2 text-center text-white
-                  ${isBooking ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-500 hover:bg-green-600'}
-                `}
-              >
-                {isBooking ? 'Бронирование...' : 'Забронировать'}
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
+                  // Prepare data
+                  const reservationData: any = {
+                    parking_spot: selectedSpot.reference,
+                    payment_method_type: reservationForm.paymentMethod === 'wallet' ? 'wallet' : 'card',
+                    payment_method_id: reservationForm.paymentMethod === 'wallet' ? null : reservationForm.paymentMethod
+                  };
 
-      {/* Payment Processor */}
-      {showPayment && (
-        <div className="absolute top-2 right-2 md:top-5 md:right-5 bg-white p-4 md:p-5 rounded-lg shadow-lg z-[1000] w-[calc(100%-16px)] md:w-auto md:max-w-[500px] mx-2 md:mx-0">
-          <h3 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">Оплата бронирования</h3>
+                  // Add either selected_hours or start_time/end_time based on booking type
+                  if (reservationForm.useHourlyBooking) {
+                    reservationData.selected_hours = reservationForm.selectedHours;
+                  } else {
+                    reservationData.start_time = reservationForm.startTime;
+                    reservationData.end_time = reservationForm.endTime;
+                  }
 
-          {/* Show discount information if applicable */}
-          {activeSubscription && originalPrice > 0 && (
-            <div className="bg-green-50 border border-green-200 rounded p-3 mb-4">
-              <p className="text-green-800 font-medium">
-                Применена скидка {activeSubscription.plan_details.discount_percentage}% по подписке "{activeSubscription.plan_details.name}"
-              </p>
-              <div className="flex justify-between mt-1">
-                <span className="text-gray-600">Стандартная цена:</span>
-                <span className="text-gray-600 line-through">{originalPrice.toFixed(2)} ₸</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="font-medium">Цена со скидкой:</span>
-                <span className="font-medium text-green-700">{paymentAmount.toFixed(2)} ₸</span>
-              </div>
-            </div>
-          )}
+                  // Send request to create reservation
+                  authFetch('/api/parking/reservations/', {
+                    method: 'POST',
+                    data: reservationData
+                  })
+                    .then(response => {
+                      // Handle successful reservation
+                      setReservationSuccess(true);
+                      setReservationId(response.data.id);
 
-          <PaymentProcessor 
-            amount={paymentAmount}
-            reservationId={reservationId}
-            onSuccess={handlePaymentSuccess}
-            onCancel={handlePaymentCancel}
-            description="Оплата бронирования парковочного места"
-          />
-        </div>
+                      // Refresh parking spots to show updated status
+                      return authFetch<ParkingSpot[]>('/api/sensor/');
+                    })
+                    .then(spotsRes => {
+                      setSpots(spotsRes.data);
+                    })
+                    .catch(error => {
+                      // Handle error
+                      console.error('Error creating reservation:', error);
+                      if (error.response?.data?.detail) {
+                        setReservationError(error.response.data.detail);
+                      } else if (error.response?.data?.non_field_errors) {
+                        setReservationError(error.response.data.non_field_errors[0]);
+                      } else {
+                        setReservationError('Не удалось создать бронирование. Пожалуйста, попробуйте еще раз.');
+                      }
+                    })
+                    .finally(() => {
+                      setReservationLoading(false);
+                    });
+                }}>
+                  {/* Booking Type Toggle */}
+                  <div className="mb-4">
+                    <div className="flex items-center justify-between bg-gray-100 p-3 rounded-lg">
+                      <span className="text-sm font-medium">Тип бронирования:</span>
+                      <div className="flex items-center space-x-4">
+                        <label className="flex items-center">
+                          <input
+                            type="radio"
+                            checked={!reservationForm.useHourlyBooking}
+                            onChange={() => {
+                              setReservationForm({
+                                ...reservationForm,
+                                useHourlyBooking: false
+                              });
+                            }}
+                            className="mr-2"
+                          />
+                          <span>Стандартное</span>
+                        </label>
+                        <label className="flex items-center">
+                          <input
+                            type="radio"
+                            checked={reservationForm.useHourlyBooking}
+                            onChange={() => {
+                              setReservationForm({
+                                ...reservationForm,
+                                useHourlyBooking: true
+                              });
+                            }}
+                            className="mr-2"
+                          />
+                          <span>Почасовое</span>
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Standard Booking Form */}
+                  {!reservationForm.useHourlyBooking && (
+                    <>
+                      <div className="mb-4">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Дата и время начала
+                        </label>
+                        <input
+                          type="datetime-local"
+                          value={reservationForm.startTime}
+                          onChange={(e) => {
+                            setReservationForm({
+                              ...reservationForm,
+                              startTime: e.target.value
+                            });
+                          }}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          required
+                        />
+                      </div>
+
+                      <div className="mb-4">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Дата и время окончания
+                        </label>
+                        <input
+                          type="datetime-local"
+                          value={reservationForm.endTime}
+                          onChange={(e) => {
+                            setReservationForm({
+                              ...reservationForm,
+                              endTime: e.target.value
+                            });
+                          }}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          required
+                        />
+                      </div>
+                    </>
+                  )}
+
+                  {/* Hourly Booking Form */}
+                  {reservationForm.useHourlyBooking && (
+                    <div className="mb-4">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Выберите часы для бронирования
+                      </label>
+
+                      {availableTimeSlots.length === 0 ? (
+                        <div className="bg-yellow-100 text-yellow-800 p-3 rounded-lg">
+                          Нет доступных часов для бронирования на сегодня.
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-60 overflow-y-auto p-2 border border-gray-300 rounded-md">
+                          {availableTimeSlots.map((slot, index) => {
+                            const startTime = new Date(slot.start);
+                            const endTime = new Date(slot.end);
+                            const isSelected = reservationForm.selectedHours.some(
+                              h => h.start === slot.start && h.end === slot.end
+                            );
+
+
+                            return (
+                              <div 
+                                key={index}
+                                className={`p-2 rounded-md cursor-pointer text-center text-sm ${
+                                  isSelected 
+                                    ? 'bg-blue-500 text-white' 
+                                    : 'bg-gray-100 hover:bg-gray-200'
+                                }`}
+                                onClick={() => {
+                                  let newSelectedHours;
+                                  if (isSelected) {
+                                    // Remove from selection
+                                    newSelectedHours = reservationForm.selectedHours.filter(
+                                      h => h.start !== slot.start || h.end !== slot.end
+                                    );
+                                  } else {
+                                    // Add to selection
+                                    newSelectedHours = [
+                                      ...reservationForm.selectedHours,
+                                      { start: slot.start, end: slot.end }
+                                    ];
+                                  }
+                                  setReservationForm({
+                                    ...reservationForm,
+                                    selectedHours: newSelectedHours
+                                  });
+                                }}
+                              >
+                                {startTime.getHours()}:00 - {endTime.getHours()}:00
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {reservationForm.selectedHours.length > 0 && (
+                        <div className="mt-2 text-sm text-gray-600">
+                          Выбрано часов: {reservationForm.selectedHours.length}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Способ оплаты
+                    </label>
+                    <select
+                      value={reservationForm.paymentMethod}
+                      onChange={(e) => setReservationForm({
+                        ...reservationForm,
+                        paymentMethod: e.target.value
+                      })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      required
+                    >
+                      <option value="">Выберите способ оплаты</option>
+                      <option value="wallet">Кошелек</option>
+                      {paymentMethods.map(method => (
+                        <option key={method.id} value={method.id}>
+                          {method.type === 'credit_card' ? 'Кредитная карта' : 'Дебетовая карта'} •••• {method.card_number ? method.card_number.slice(-4) : 'XXXX'}
+                        </option>
+                      ))}
+                    </select>
+                    {paymentMethods.length === 0 && (
+                      <p className="mt-1 text-sm text-yellow-600">
+                        У вас нет сохраненных карт. <a href="/payments" className="text-blue-500 hover:underline">Добавить карту</a>
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="flex justify-end space-x-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowReservationModal(false);
+                        setReservationError(null);
+                      }}
+                      className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-md"
+                    >
+                      Отмена
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={reservationLoading}
+                      className={`px-4 py-2 rounded-md text-white ${
+                        reservationLoading ? 'bg-blue-300' : 'bg-blue-500 hover:bg-blue-600'
+                      }`}
+                    >
+                      {reservationLoading ? 'Создание...' : 'Забронировать'}
+                    </button>
+                  </div>
+                </form>
+              </>
+            )}
+          </div>
+        </Modal>
       )}
     </div>
   );

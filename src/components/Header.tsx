@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useState } from 'react';
 
 const InfoHeader = () => {
-  const { accessToken } = useAuth();
+  const { user } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const toggleMobileMenu = () => {
@@ -39,6 +39,11 @@ const InfoHeader = () => {
               </Link>
             </li>
             <li>
+              <Link href="/parking/my-reservations" className="text-white hover:text-gray-300">
+                Мои бронирования
+              </Link>
+            </li>
+            <li>
               <Link href="/tariffs" className="text-white hover:text-gray-300">
                 Тарифы
               </Link>
@@ -63,7 +68,7 @@ const InfoHeader = () => {
 
         {/* Auth Button - Desktop */}
         <div className="hidden md:block">
-          {accessToken ? (
+          {user ? (
             <Link href="/profile" className="flex items-center gap-2 text-white hover:text-gray-300">
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -112,6 +117,9 @@ const InfoHeader = () => {
           <Link href="/map" className="text-white hover:text-gray-300">
             Карта парковок
           </Link>
+          <Link href="/parking/my-reservations" className="text-white hover:text-gray-300">
+            Мои бронирования
+          </Link>
           <Link href="/tariffs" className="text-white hover:text-gray-300">
             Тарифы
           </Link>
@@ -128,7 +136,7 @@ const InfoHeader = () => {
 
         {/* Auth Button - Mobile */}
         <div className="mt-4">
-          {accessToken ? (
+          {user ? (
             <Link href="/profile" className="flex items-center gap-2 text-white hover:text-gray-300">
               <svg
                 xmlns="http://www.w3.org/2000/svg"

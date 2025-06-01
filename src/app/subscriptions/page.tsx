@@ -32,7 +32,7 @@ interface PaymentMethod {
 }
 
 const SubscriptionsPage = () => {
-  const { accessToken } = useAuth();
+  const { authFetch } = useAuth();
   const router = useRouter();
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [activeSubscription, setActiveSubscription] = useState<UserSubscription | null>(null);
@@ -45,25 +45,12 @@ const SubscriptionsPage = () => {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!accessToken) {
-      router.push('/auth/login');
-      return;
-    }
-
     // Fetch subscription plans
     const fetchPlans = async () => {
       try {
-        const response = await fetch('http://localhost:8000/api/subscriptions/plans/', {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-          },
-        });
+        const response = await authFetch('/api/subscriptions/plans/');
 
-        if (!response.ok) {
-          throw new Error('Failed to fetch subscription plans');
-        }
-
-        const data = await response.json();
+        const data = response.data;
         setPlans(data);
       } catch (error) {
         console.error('Error fetching subscription plans:', error);
@@ -74,17 +61,10 @@ const SubscriptionsPage = () => {
     // Fetch active subscription
     const fetchActiveSubscription = async () => {
       try {
-        const response = await fetch(
-          'http://localhost:8000/api/subscriptions/subscriptions/active/',
-          {
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-            },
-          },
-        );
+        const response = await authFetch('/api/subscriptions/subscriptions/active/');
 
-        if (response.ok) {
-          const data = await response.json();
+        if (response.status === 200) {
+          const data = response.data;
           setActiveSubscription(data);
         }
       } catch (error) {
@@ -95,17 +75,9 @@ const SubscriptionsPage = () => {
     // Fetch payment methods
     const fetchPaymentMethods = async () => {
       try {
-        const response = await fetch('http://localhost:8000/api/payments/methods/', {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-          },
-        });
+        const response = await authFetch('/api/payments/methods/');
 
-        if (!response.ok) {
-          throw new Error('Failed to fetch payment methods');
-        }
-
-        const data = await response.json();
+        const data = response.data;
         setPaymentMethods(data);
 
         // Set default payment method if available
@@ -127,7 +99,7 @@ const SubscriptionsPage = () => {
     };
 
     fetchData();
-  }, [accessToken, router]);
+  }, [authFetch, router]);
 
   const handlePurchase = async () => {
     if (!selectedPlan || !selectedPaymentMethod) {
@@ -140,28 +112,19 @@ const SubscriptionsPage = () => {
     setSuccessMessage(null);
 
     try {
-      const response = await fetch(
-        'http://localhost:8000/api/subscriptions/purchase-subscription/',
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            plan_id: selectedPlan,
-            payment_method_id: parseInt(selectedPaymentMethod, 10),
-            auto_renew: autoRenew,
-          }),
+      const response = await authFetch('/api/subscriptions/purchase-subscription/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
-      );
+        data: {
+          plan_id: selectedPlan,
+          payment_method_id: parseInt(selectedPaymentMethod, 10),
+          auto_renew: autoRenew,
+        },
+      });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to purchase subscription');
-      }
-
-      const data = await response.json();
+      const data = response.data;
       setActiveSubscription(data);
       setSuccessMessage('Subscription purchased successfully!');
 
@@ -170,7 +133,11 @@ const SubscriptionsPage = () => {
       setAutoRenew(false);
     } catch (error: any) {
       console.error('Error purchasing subscription:', error);
-      setError(error.message || 'Failed to purchase subscription. Please try again later.');
+      setError(
+        error.response?.data?.error ||
+          error.message ||
+          'Failed to purchase subscription. Please try again later.',
+      );
     } finally {
       setLoading(false);
     }
@@ -184,20 +151,12 @@ const SubscriptionsPage = () => {
     setSuccessMessage(null);
 
     try {
-      const response = await fetch(
-        `http://localhost:8000/api/subscriptions/subscriptions/${activeSubscription.id}/cancel/`,
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-          },
+      await authFetch(`/api/subscriptions/subscriptions/${activeSubscription.id}/cancel/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
-      );
-
-      if (!response.ok) {
-        throw new Error('Failed to cancel subscription');
-      }
+      });
 
       setSuccessMessage('Subscription cancelled successfully!');
       setActiveSubscription(null);
