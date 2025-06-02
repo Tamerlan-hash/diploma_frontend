@@ -62,7 +62,7 @@ const FreeSpotsCluster: React.FC<{
 
   if (!L || !show) return null;
 
-  const freeCount = spots.filter((s) => !s.is_lock).length;
+  const freeCount = spots.filter((s) => !s.is_occupied).length;
   const icon = L.divIcon({
     className: '',
     html: `<div style="
@@ -223,11 +223,13 @@ export function MapClient() {
         center={center}
         zoom={zoomThreshold + 1}
         maxBounds={bounds}
+        maxZoom={22}
         className="h-full w-full"
       >
         <TileLayer
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          attribution="&copy; OpenStreetMap contributors"
+          url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
+          attribution="&copy; <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors &copy; <a href='https://carto.com/attributions'>CARTO</a>"
+          maxZoom={22}
         />
 
         <FreeSpotsCluster spots={spots} center={center} zoomThreshold={zoomThreshold} />
@@ -240,7 +242,7 @@ export function MapClient() {
             [spot.latitude4, spot.longitude4],
           ];
           const opts = {
-            color: spot.is_lock ? 'red' : 'green',
+            color: spot.is_occupied ? 'red' : 'green',
             weight: 2,
             fillOpacity: 0.3,
           } as PathOptions;
@@ -251,7 +253,7 @@ export function MapClient() {
               pathOptions={opts}
               eventHandlers={{
                 click: () => {
-                  if (!spot.is_lock) {
+                  if (!spot.is_occupied) {
                     setSelectedSpot(spot);
                     setShowReservationModal(true);
                   }
@@ -261,7 +263,7 @@ export function MapClient() {
               <Popup>
                 {spot.name || `Место ${spot.reference.slice(0, 8)}`}
                 <br />
-                Состояние: {spot.is_lock ? 'Занято' : 'Свободно'}
+                Состояние: {spot.is_occupied ? 'Занято' : 'Свободно'}
                 <br />
                 <div className="flex items-center gap-2">
                   <span
@@ -275,7 +277,7 @@ export function MapClient() {
                   ></span>
                   <span>Блокер: {spot.is_blocker_raised ? 'Поднят' : 'Опущен'}</span>
                 </div>
-                {!spot.is_lock && (
+                {!spot.is_occupied && (
                   <button 
                     className="mt-2 bg-blue-500 hover:bg-blue-600 text-white py-1 px-2 rounded text-sm"
                     onClick={() => {
