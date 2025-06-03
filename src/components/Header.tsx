@@ -3,6 +3,7 @@
 import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
 import { useState } from 'react';
+import { PWAInstallButton } from './PWAInstallButton';
 
 const InfoHeader = () => {
   const { user } = useAuth();
@@ -67,7 +68,12 @@ const InfoHeader = () => {
         </nav>
 
         {/* Auth Button - Desktop */}
-        <div className="hidden md:block">
+        <div className="hidden md:flex items-center gap-3">
+          <PWAInstallButton 
+            variant="text" 
+            className="bg-blue-500 text-white px-3 py-1 rounded-md text-sm hover:bg-blue-600 transition-colors" 
+          />
+
           {user ? (
             <Link href="/profile" className="flex items-center gap-2 text-white hover:text-gray-300">
               <svg
@@ -135,7 +141,12 @@ const InfoHeader = () => {
         </nav>
 
         {/* Auth Button - Mobile */}
-        <div className="mt-4">
+        <div className="mt-4 flex flex-col gap-3">
+          <PWAInstallButton 
+            variant="full" 
+            className="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 transition-colors flex items-center justify-center" 
+          />
+
           {user ? (
             <Link href="/profile" className="flex items-center gap-2 text-white hover:text-gray-300">
               <svg

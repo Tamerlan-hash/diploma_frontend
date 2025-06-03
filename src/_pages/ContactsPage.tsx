@@ -67,8 +67,7 @@ const ContactsPage = () => {
                 </div>
                 <div>
                   <h3 className="text-lg font-semibold mb-1">Адрес</h3>
-                  <p className="text-gray-600">ул. Ленина, 123</p>
-                  <p className="text-gray-600">Москва, Россия, 123456</p>
+                  <p className="text-gray-600">г Алматы, Манаса 34/1</p>
                 </div>
               </div>
 
