@@ -46,6 +46,12 @@ export default function LoginPage() {
         >
           Login
         </button>
+        <a 
+          href="/auth/signup" 
+          className="block text-center bg-amber-200 text-black p-2 rounded-xl cursor-pointer font-bold mt-2"
+        >
+          Регистрация
+        </a>
       </form>
     </div>
   );

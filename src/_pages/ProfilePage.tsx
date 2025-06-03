@@ -42,7 +42,7 @@ interface StatusMessage {
 }
 
 const ProfilePage = () => {
-  const { user, updateProfile, authFetch } = useAuth();
+  const { user, updateProfile, authFetch, logout } = useAuth();
 
   // Profile state
   const [username, setUsername] = useState('');
@@ -293,12 +293,20 @@ const ProfilePage = () => {
                   </div>
                 )}
                 {!isEditing && (
-                  <button 
-                    onClick={() => setIsEditing(true)}
-                    className="bg-yellow-400 hover:bg-yellow-500 text-black py-2 px-4 rounded-lg mt-2 w-full md:w-auto text-center"
-                  >
-                    Редактировать профиль
-                  </button>
+                  <div className="flex flex-col gap-2">
+                    <button 
+                      onClick={() => setIsEditing(true)}
+                      className="bg-yellow-400 hover:bg-yellow-500 text-black py-2 px-4 rounded-lg w-full md:w-auto text-center"
+                    >
+                      Редактировать профиль
+                    </button>
+                    <button 
+                      onClick={logout}
+                      className="bg-red-500 hover:bg-red-600 text-white py-2 px-4 rounded-lg w-full md:w-auto text-center"
+                    >
+                      Выйти из аккаунта
+                    </button>
+                  </div>
                 )}
               </div>
 
