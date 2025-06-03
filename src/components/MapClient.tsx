@@ -37,8 +37,14 @@ interface ReservationFormData {
   startTime: string;
   endTime: string;
   paymentMethod: string;
-  selectedHours: Array<{start: string, end: string}>;
-  useHourlyBooking: boolean;
+  selectedHours: { start: string; end: string }[];
+}
+
+interface TimeSlot {
+  start_time: string;
+  end_time: string;
+  status: 'available' | 'blocked';
+  reason?: string;
 }
 
 const FreeSpotsCluster: React.FC<{
@@ -62,7 +68,7 @@ const FreeSpotsCluster: React.FC<{
 
   if (!L || !show) return null;
 
-  const freeCount = spots.filter((s) => !s.is_occupied).length;
+  const freeCount = spots.filter((s) => !s.is_lock).length;
   const icon = L.divIcon({
     className: '',
     html: `<div style="
@@ -88,7 +94,7 @@ const FreeSpotsCluster: React.FC<{
 };
 
 export function MapClient() {
-  const { user, authFetch } = useAuth();
+  const { user, authFetch, isAuthReady } = useAuth();
   const router = useRouter();
 
   const [spots, setSpots] = useState<ParkingSpot[]>([]);
@@ -110,15 +116,17 @@ export function MapClient() {
     startTime: '',
     endTime: '',
     paymentMethod: '',
-    selectedHours: [],
-    useHourlyBooking: false
+    selectedHours: []
   });
+  const [availableTimeSlots, setAvailableTimeSlots] = useState<TimeSlot[]>([]);
+  const [timeSlotLoading, setTimeSlotLoading] = useState(false);
+  const [timeSlotError, setTimeSlotError] = useState<string | null>(null);
+  const [selectedDate, setSelectedDate] = useState<string>('');
   const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
   const [reservationLoading, setReservationLoading] = useState(false);
   const [reservationError, setReservationError] = useState<string | null>(null);
   const [reservationSuccess, setReservationSuccess] = useState(false);
   const [reservationId, setReservationId] = useState<string | null>(null);
-  const [availableTimeSlots, setAvailableTimeSlots] = useState<Array<{start: string, end: string}>>([]);
 
   const center: LatLngExpression = [43.23517, 76.90991];
   const bounds: LatLngBoundsExpression = [
@@ -127,10 +135,10 @@ export function MapClient() {
   ];
   const zoomThreshold = 15;
 
-  // Если неавторизован — редирект
+  // Если неавторизован — редирект, но только после инициализации аутентификации
   useEffect(() => {
-    if (!user) router.push('/auth/login');
-  }, [user, router]);
+    if (isAuthReady && !user) router.push('/auth/login');
+  }, [isAuthReady, user, router]);
 
   // Загрузка данных о парковке
   useEffect(() => {
@@ -159,13 +167,24 @@ export function MapClient() {
         return date.toISOString().slice(0, 16); // Format: YYYY-MM-DDTHH:MM
       };
 
-      setReservationForm({
-        startTime: formatDate(oneHourLater),
-        endTime: formatDate(twoHoursLater),
-        paymentMethod: '',
-        selectedHours: [],
-        useHourlyBooking: false
-      });
+      // Format date for API request (YYYY-MM-DD)
+      const formatDateForApi = (date: Date) => {
+        return date.toISOString().split('T')[0];
+      };
+
+      // Set today's date as default selected date
+      const today = formatDateForApi(now);
+      setSelectedDate(today);
+
+      // Reset the form when the modal opens
+      if (!reservationForm.startTime) {
+        setReservationForm({
+          startTime: formatDate(oneHourLater),
+          endTime: formatDate(twoHoursLater),
+          paymentMethod: '',
+          selectedHours: []
+        });
+      }
 
       // Fetch payment methods
       authFetch('/api/payments/methods/')
@@ -176,28 +195,41 @@ export function MapClient() {
           console.error('Error fetching payment methods:', error);
         });
 
-      // Fetch available time slots for the selected parking spot
-      // Using the current date as the start date for available windows
-      const today = getAlmatyTime(); // Use Almaty timezone
-      today.setHours(0, 0, 0, 0); // Start of today
-      const formattedDate = today.toISOString().split('T')[0]; // Format: YYYY-MM-DD
-
-      // Only fetch available windows if selectedSpot.id is defined
-      if (selectedSpot && selectedSpot.id) {
-        authFetch(`/api/parking/parking-spot/${selectedSpot.id}/available-windows/?date=${formattedDate}`)
-          .then(response => {
-            setAvailableTimeSlots(response.data.available_windows || []);
-          })
-          .catch(error => {
-            console.error('Error fetching available time slots:', error);
-            setAvailableTimeSlots([]);
-          });
-      } else {
-        console.warn('Cannot fetch available time slots: parking spot ID is undefined');
-        setAvailableTimeSlots([]);
-      }
+      // Fetch available time slots for today
+      fetchAvailableTimeSlots(selectedSpot.reference, today);
     }
   }, [selectedSpot, showReservationModal, authFetch]);
+
+  // Fetch available time slots when selected date changes
+  useEffect(() => {
+    if (selectedSpot && selectedDate) {
+      fetchAvailableTimeSlots(selectedSpot.reference, selectedDate);
+    }
+  }, [selectedDate, selectedSpot]);
+
+  // Function to fetch available time slots
+  const fetchAvailableTimeSlots = (spotId: string, date: string) => {
+    setTimeSlotLoading(true);
+    setTimeSlotError(null);
+
+    authFetch(`/api/parking/parking-spot/${spotId}/available-windows/?date=${date}`)
+      .then(response => {
+        setAvailableTimeSlots(response.data);
+
+        // Reset selected hours when available slots change
+        setReservationForm(prev => ({
+          ...prev,
+          selectedHours: []
+        }));
+      })
+      .catch(error => {
+        console.error('Error fetching available time slots:', error);
+        setTimeSlotError('Не удалось загрузить доступные временные слоты');
+      })
+      .finally(() => {
+        setTimeSlotLoading(false);
+      });
+  };
 
   // Новый: периодический рефреш статусов парковочных мест (каждые 30 сек)
   useEffect(() => {
@@ -222,14 +254,15 @@ export function MapClient() {
       <MapContainer
         center={center}
         zoom={zoomThreshold + 1}
+        maxZoom={23}
         maxBounds={bounds}
-        maxZoom={22}
         className="h-full w-full"
       >
         <TileLayer
-          url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
-          attribution="&copy; <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors &copy; <a href='https://carto.com/attributions'>CARTO</a>"
-          maxZoom={22}
+          url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+          attribution="&copy; OpenStreetMap contributors"
+          maxZoom={23}
+          maxNativeZoom={23}
         />
 
         <FreeSpotsCluster spots={spots} center={center} zoomThreshold={zoomThreshold} />
@@ -242,7 +275,7 @@ export function MapClient() {
             [spot.latitude4, spot.longitude4],
           ];
           const opts = {
-            color: spot.is_occupied ? 'red' : 'green',
+            color: spot.is_lock ? 'red' : 'green',
             weight: 2,
             fillOpacity: 0.3,
           } as PathOptions;
@@ -253,7 +286,7 @@ export function MapClient() {
               pathOptions={opts}
               eventHandlers={{
                 click: () => {
-                  if (!spot.is_occupied) {
+                  if (!spot.is_lock) {
                     setSelectedSpot(spot);
                     setShowReservationModal(true);
                   }
@@ -263,7 +296,7 @@ export function MapClient() {
               <Popup>
                 {spot.name || `Место ${spot.reference.slice(0, 8)}`}
                 <br />
-                Состояние: {spot.is_occupied ? 'Занято' : 'Свободно'}
+                Состояние: {spot.is_lock ? 'Занято' : 'Свободно'}
                 <br />
                 <div className="flex items-center gap-2">
                   <span
@@ -277,7 +310,7 @@ export function MapClient() {
                   ></span>
                   <span>Блокер: {spot.is_blocker_raised ? 'Поднят' : 'Опущен'}</span>
                 </div>
-                {!spot.is_occupied && (
+                {!spot.is_lock && (
                   <button 
                     className="mt-2 bg-blue-500 hover:bg-blue-600 text-white py-1 px-2 rounded text-sm"
                     onClick={() => {
@@ -335,23 +368,36 @@ export function MapClient() {
                     return;
                   }
 
-                  if (reservationForm.useHourlyBooking && reservationForm.selectedHours.length === 0) {
+                  if (reservationForm.selectedHours.length === 0) {
                     setReservationError('Выберите хотя бы один час для бронирования');
                     return;
                   }
 
-                  if (!reservationForm.useHourlyBooking) {
-                    const startTime = new Date(reservationForm.startTime);
-                    const endTime = new Date(reservationForm.endTime);
-                    // Add a 5-minute buffer to account for form filling time
-                    const now = getAlmatyTime(); // Use Almaty timezone
-                    const bufferTime = new Date(now.getTime() - 5 * 60 * 1000);
-
-
-                    if (endTime <= startTime) {
-                      setReservationError('Время окончания должно быть позже времени начала');
-                      return;
+                  // Check if hours are consecutive
+                  let isConsecutive = true;
+                  for (let i = 0; i < reservationForm.selectedHours.length - 1; i++) {
+                    const currentEnd = new Date(reservationForm.selectedHours[i].end).getTime();
+                    const nextStart = new Date(reservationForm.selectedHours[i + 1].start).getTime();
+                    if (currentEnd !== nextStart) {
+                      isConsecutive = false;
+                      break;
                     }
+                  }
+
+                  if (!isConsecutive && reservationForm.selectedHours.length > 1) {
+                    setReservationError('Выбранные часы должны быть последовательными');
+                    return;
+                  }
+
+                  const startTime = new Date(reservationForm.startTime);
+                  const endTime = new Date(reservationForm.endTime);
+                  // Add a 5-minute buffer to account for form filling time
+                  const now = getAlmatyTime(); // Use Almaty timezone
+                  const bufferTime = new Date(now.getTime() - 5 * 60 * 1000);
+
+                  if (endTime <= startTime) {
+                    setReservationError('Время окончания должно быть позже времени начала');
+                    return;
                   }
 
                   // Create reservation
@@ -369,16 +415,11 @@ export function MapClient() {
                   const reservationData: any = {
                     parking_spot: selectedSpot.reference,
                     payment_method_type: reservationForm.paymentMethod === 'wallet' ? 'wallet' : 'card',
-                    payment_method_id: reservationForm.paymentMethod === 'wallet' ? null : reservationForm.paymentMethod
+                    payment_method_id: reservationForm.paymentMethod === 'wallet' ? null : reservationForm.paymentMethod,
+                    start_time: reservationForm.startTime,
+                    end_time: reservationForm.endTime,
+                    selected_hours: reservationForm.selectedHours
                   };
-
-                  // Add either selected_hours or start_time/end_time based on booking type
-                  if (reservationForm.useHourlyBooking) {
-                    reservationData.selected_hours = reservationForm.selectedHours;
-                  } else {
-                    reservationData.start_time = reservationForm.startTime;
-                    reservationData.end_time = reservationForm.endTime;
-                  }
 
                   // Send request to create reservation
                   authFetch('/api/parking/reservations/', {
@@ -411,147 +452,154 @@ export function MapClient() {
                       setReservationLoading(false);
                     });
                 }}>
-                  {/* Booking Type Toggle */}
+                  {/* Booking Form */}
                   <div className="mb-4">
-                    <div className="flex items-center justify-between bg-gray-100 p-3 rounded-lg">
-                      <span className="text-sm font-medium">Тип бронирования:</span>
-                      <div className="flex items-center space-x-4">
-                        <label className="flex items-center">
-                          <input
-                            type="radio"
-                            checked={!reservationForm.useHourlyBooking}
-                            onChange={() => {
-                              setReservationForm({
-                                ...reservationForm,
-                                useHourlyBooking: false
-                              });
-                            }}
-                            className="mr-2"
-                          />
-                          <span>Стандартное</span>
-                        </label>
-                        <label className="flex items-center">
-                          <input
-                            type="radio"
-                            checked={reservationForm.useHourlyBooking}
-                            onChange={() => {
-                              setReservationForm({
-                                ...reservationForm,
-                                useHourlyBooking: true
-                              });
-                            }}
-                            className="mr-2"
-                          />
-                          <span>Почасовое</span>
-                        </label>
-                      </div>
-                    </div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Выберите дату
+                    </label>
+                    <input
+                      type="date"
+                      value={selectedDate}
+                      onChange={(e) => {
+                        setSelectedDate(e.target.value);
+                      }}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      required
+                    />
                   </div>
 
-                  {/* Standard Booking Form */}
-                  {!reservationForm.useHourlyBooking && (
-                    <>
-                      <div className="mb-4">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Дата и время начала
-                        </label>
-                        <input
-                          type="datetime-local"
-                          value={reservationForm.startTime}
-                          onChange={(e) => {
-                            setReservationForm({
-                              ...reservationForm,
-                              startTime: e.target.value
-                            });
-                          }}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          required
-                        />
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Выберите часы для бронирования
+                    </label>
+
+                    {timeSlotLoading ? (
+                      <div className="flex justify-center items-center p-4">
+                        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
                       </div>
-
-                      <div className="mb-4">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Дата и время окончания
-                        </label>
-                        <input
-                          type="datetime-local"
-                          value={reservationForm.endTime}
-                          onChange={(e) => {
-                            setReservationForm({
-                              ...reservationForm,
-                              endTime: e.target.value
-                            });
-                          }}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          required
-                        />
+                    ) : timeSlotError ? (
+                      <div className="bg-red-100 p-3 rounded-md text-red-800 text-sm">
+                        {timeSlotError}
                       </div>
-                    </>
-                  )}
-
-                  {/* Hourly Booking Form */}
-                  {reservationForm.useHourlyBooking && (
-                    <div className="mb-4">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Выберите часы для бронирования
-                      </label>
-
-                      {availableTimeSlots.length === 0 ? (
-                        <div className="bg-yellow-100 text-yellow-800 p-3 rounded-lg">
-                          Нет доступных часов для бронирования на сегодня.
+                    ) : (
+                      <>
+                        <div className="text-sm text-gray-600 mb-2">
+                          Выберите последовательные часы (максимум 24 часа). Заблокированные слоты уже забронированы.
                         </div>
-                      ) : (
-                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-60 overflow-y-auto p-2 border border-gray-300 rounded-md">
+                        <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2 mb-2">
                           {availableTimeSlots.map((slot, index) => {
-                            const startTime = new Date(slot.start);
-                            const endTime = new Date(slot.end);
+                            // Format time for display (HH:MM)
+                            const startTime = new Date(slot.start_time);
+                            const formattedTime = startTime.toLocaleTimeString('ru-RU', {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                              hour12: false
+                            });
+
+                            // Check if this slot is selected
                             const isSelected = reservationForm.selectedHours.some(
-                              h => h.start === slot.start && h.end === slot.end
+                              hour => hour.start === slot.start_time && hour.end === slot.end_time
                             );
 
-
                             return (
-                              <div 
+                              <button
                                 key={index}
-                                className={`p-2 rounded-md cursor-pointer text-center text-sm ${
-                                  isSelected 
-                                    ? 'bg-blue-500 text-white' 
-                                    : 'bg-gray-100 hover:bg-gray-200'
-                                }`}
+                                type="button"
+                                disabled={slot.status === 'blocked'}
                                 onClick={() => {
-                                  let newSelectedHours;
+                                  // Handle slot selection
+                                  const newSelectedHours = [...reservationForm.selectedHours];
+
                                   if (isSelected) {
-                                    // Remove from selection
-                                    newSelectedHours = reservationForm.selectedHours.filter(
-                                      h => h.start !== slot.start || h.end !== slot.end
+                                    // If already selected, remove it
+                                    const index = newSelectedHours.findIndex(
+                                      hour => hour.start === slot.start_time && hour.end === slot.end_time
                                     );
+                                    if (index !== -1) {
+                                      newSelectedHours.splice(index, 1);
+                                    }
                                   } else {
-                                    // Add to selection
-                                    newSelectedHours = [
-                                      ...reservationForm.selectedHours,
-                                      { start: slot.start, end: slot.end }
-                                    ];
+                                    // If not selected, add it
+                                    newSelectedHours.push({
+                                      start: slot.start_time,
+                                      end: slot.end_time
+                                    });
                                   }
-                                  setReservationForm({
-                                    ...reservationForm,
-                                    selectedHours: newSelectedHours
-                                  });
+
+                                  // Sort by start time
+                                  newSelectedHours.sort((a, b) => 
+                                    new Date(a.start).getTime() - new Date(b.start).getTime()
+                                  );
+
+                                  // Check if hours are consecutive
+                                  let isConsecutive = true;
+                                  for (let i = 0; i < newSelectedHours.length - 1; i++) {
+                                    const currentEnd = new Date(newSelectedHours[i].end).getTime();
+                                    const nextStart = new Date(newSelectedHours[i + 1].start).getTime();
+                                    if (currentEnd !== nextStart) {
+                                      isConsecutive = false;
+                                      break;
+                                    }
+                                  }
+
+                                  if (!isConsecutive && newSelectedHours.length > 1) {
+                                    setReservationError('Выбранные часы должны быть последовательными');
+                                    return;
+                                  }
+
+                                  // Clear error if selection is valid
+                                  if (reservationError === 'Выбранные часы должны быть последовательными') {
+                                    setReservationError(null);
+                                  }
+
+                                  // Update form
+                                  setReservationForm(prev => ({
+                                    ...prev,
+                                    selectedHours: newSelectedHours,
+                                    // Update start and end times based on selected hours
+                                    startTime: newSelectedHours.length > 0 ? newSelectedHours[0].start : prev.startTime,
+                                    endTime: newSelectedHours.length > 0 
+                                      ? newSelectedHours[newSelectedHours.length - 1].end 
+                                      : prev.endTime
+                                  }));
                                 }}
+                                className={`
+                                  py-2 px-1 text-sm rounded-md flex items-center justify-center
+                                  ${slot.status === 'blocked' 
+                                    ? 'bg-red-100 text-red-800 cursor-not-allowed' 
+                                    : isSelected
+                                      ? 'bg-blue-500 text-white'
+                                      : 'bg-gray-100 hover:bg-gray-200 text-gray-800'
+                                  }
+                                `}
                               >
-                                {startTime.getHours()}:00 - {endTime.getHours()}:00
-                              </div>
+                                {formattedTime}
+                              </button>
                             );
                           })}
                         </div>
-                      )}
 
-                      {reservationForm.selectedHours.length > 0 && (
-                        <div className="mt-2 text-sm text-gray-600">
-                          Выбрано часов: {reservationForm.selectedHours.length}
-                        </div>
-                      )}
-                    </div>
-                  )}
+                        {reservationForm.selectedHours.length > 0 && (
+                          <div className="bg-blue-50 p-3 rounded-md">
+                            <p className="text-sm font-medium text-blue-800">
+                              Выбрано часов: {reservationForm.selectedHours.length}
+                            </p>
+                            <p className="text-sm text-blue-700">
+                              С {new Date(reservationForm.selectedHours[0].start).toLocaleTimeString('ru-RU', {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                                hour12: false
+                              })} до {new Date(reservationForm.selectedHours[reservationForm.selectedHours.length - 1].end).toLocaleTimeString('ru-RU', {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                                hour12: false
+                              })}
+                            </p>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
 
                   <div className="mb-4">
                     <label className="block text-sm font-medium text-gray-700 mb-1">

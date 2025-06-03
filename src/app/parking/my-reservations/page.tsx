@@ -11,6 +11,7 @@ interface Reservation {
     name: string;
     reference: string;
   };
+  parking_spot_name: string;
   start_time: string;
   end_time: string;
   status: 'pending' | 'active' | 'completed' | 'cancelled';
@@ -30,7 +31,7 @@ interface Reservation {
 }
 
 export default function MyReservationsPage() {
-  const { user, authFetch } = useAuth();
+  const { user, authFetch, isAuthReady } = useAuth();
   const router = useRouter();
 
   const [reservations, setReservations] = useState<Reservation[]>([]);
@@ -42,14 +43,16 @@ export default function MyReservationsPage() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [blockerAction, setBlockerAction] = useState<string | null>(null);
 
-  // Fetch reservations
-  useEffect(() => {
+  // Function to fetch reservations
+  const fetchReservations = () => {
     if (!user) {
-      router.push('/auth/login');
       return;
     }
 
-    setLoading(true);
+    // Don't show loading indicator for refresh updates
+    if (loading) {
+      setLoading(true);
+    }
     setError(null);
 
     // Build the URL with filter if not 'all'
@@ -69,7 +72,28 @@ export default function MyReservationsPage() {
       .finally(() => {
         setLoading(false);
       });
-  }, [user, authFetch, router, statusFilter]);
+  };
+
+  // Initial fetch of reservations
+  useEffect(() => {
+    if (isAuthReady && !user) {
+      router.push('/auth/login');
+      return;
+    }
+
+    if (user) {
+      fetchReservations();
+    }
+  }, [isAuthReady, user, authFetch, router, statusFilter]);
+
+  // Real-time updates for reservation statuses (every 5 seconds)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchReservations();
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [statusFilter, user]);
 
   // Handle reservation cancellation
   const handleCancel = (reservationId: number) => {
@@ -159,11 +183,18 @@ export default function MyReservationsPage() {
 
   // Format date
   const formatDate = (dateString: string) => {
+    if (!dateString) return 'Не указано';
+
     const date = new Date(dateString);
+    // Check if date is valid
+    if (isNaN(date.getTime())) {
+      return 'Не указано';
+    }
+
     return date.toLocaleString('ru-RU', {
       year: 'numeric',
-      month: 'long',
-      day: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
       hour: '2-digit',
       minute: '2-digit'
     });
@@ -230,6 +261,7 @@ export default function MyReservationsPage() {
                 ? 'bg-yellow-500 text-white'
                 : 'bg-gray-200 text-gray-800 hover:bg-gray-300'
             }`}
+            title="Бронирования, ожидающие оплаты"
           >
             Ожидание
           </button>
@@ -240,6 +272,7 @@ export default function MyReservationsPage() {
                 ? 'bg-green-500 text-white'
                 : 'bg-gray-200 text-gray-800 hover:bg-gray-300'
             }`}
+            title="Оплаченные бронирования, которые можно использовать"
           >
             Активные
           </button>
@@ -264,6 +297,17 @@ export default function MyReservationsPage() {
             Отмененные
           </button>
         </div>
+      </div>
+
+      {/* Status explanation */}
+      <div className="mb-6 bg-blue-50 p-4 rounded-lg">
+        <h3 className="text-md font-semibold text-blue-800 mb-2">Статусы бронирований:</h3>
+        <ul className="list-disc pl-5 space-y-1 text-sm text-gray-700">
+          <li><span className="font-medium text-yellow-700">Ожидание</span> - бронирование создано, но ожидает оплаты. Место зарезервировано, но вы не можете управлять блокиратором.</li>
+          <li><span className="font-medium text-green-700">Активно</span> - бронирование оплачено и активно. Вы можете управлять блокиратором и использовать парковочное место.</li>
+          <li><span className="font-medium text-blue-700">Завершено</span> - срок бронирования истек.</li>
+          <li><span className="font-medium text-red-700">Отменено</span> - бронирование было отменено.</li>
+        </ul>
       </div>
 
       {actionSuccess && (
@@ -305,11 +349,8 @@ export default function MyReservationsPage() {
                 <div className="flex justify-between items-start">
                   <div>
                     <h2 className="text-lg font-semibold">
-                      Место {reservation.parking_spot?.name || (reservation.parking_spot?.reference ? reservation.parking_spot.reference.slice(0, 8) : 'Неизвестно')}
+                      {reservation.parking_spot_name || 'Парковочное место'}
                     </h2>
-                    <p className="text-sm text-gray-500">
-                      Создано: {formatDate(reservation.created_at)}
-                    </p>
                   </div>
                   <span className={`px-2 py-1 rounded-full text-xs font-medium ${status.color}`}>
                     {status.text}

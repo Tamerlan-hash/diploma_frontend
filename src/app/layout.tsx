@@ -1,5 +1,6 @@
 import { AuthProvider } from '@/context/AuthContext';
 import { MainHeader } from '@/components/Header';
+import { PWAInitializer } from '@/components/PWAInitializer';
 import type { Metadata } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
 import './globals.css';
@@ -19,10 +20,43 @@ export const metadata: Metadata = {
   description: 'Find your parking spot easily',
   manifest: '/manifest.json',
   themeColor: '#000000',
+  applicationName: 'Smart Parking App',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
     title: 'Smart Parking App',
+  },
+  formatDetection: {
+    telephone: false,
+  },
+  viewport: {
+    width: 'device-width',
+    initialScale: 1,
+    maximumScale: 1,
+    userScalable: false,
+  },
+  icons: {
+    icon: [
+      { url: '/icons/icon-192x192.png', sizes: '192x192', type: 'image/png' },
+      { url: '/icons/icon-512x512.png', sizes: '512x512', type: 'image/png' },
+    ],
+    apple: [
+      { url: '/icons/icon-192x192.png', sizes: '192x192', type: 'image/png' },
+    ],
+  },
+  openGraph: {
+    type: 'website',
+    siteName: 'Smart Parking App',
+    title: 'Smart Parking App',
+    description: 'Find your parking spot easily',
+    images: [
+      {
+        url: '/screenshots/screenshot-desktop.png',
+        width: 1280,
+        height: 720,
+        alt: 'Smart Parking App Screenshot',
+      },
+    ],
   },
 };
 
@@ -37,6 +71,7 @@ export default function RootLayout({
         <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
           <MainHeader />
           {children}
+          <PWAInitializer />
         </body>
       </html>
     </AuthProvider>

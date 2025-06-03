@@ -15,9 +15,9 @@ const withPWA = require('next-pwa')({
         cacheName: 'google-fonts',
         expiration: {
           maxEntries: 4,
-          maxAgeSeconds: 365 * 24 * 60 * 60 // 1 year
-        }
-      }
+          maxAgeSeconds: 365 * 24 * 60 * 60, // 1 year
+        },
+      },
     },
     {
       urlPattern: /\.(?:eot|otf|ttc|ttf|woff|woff2|font.css)$/i,
@@ -26,9 +26,9 @@ const withPWA = require('next-pwa')({
         cacheName: 'static-font-assets',
         expiration: {
           maxEntries: 4,
-          maxAgeSeconds: 7 * 24 * 60 * 60 // 1 week
-        }
-      }
+          maxAgeSeconds: 7 * 24 * 60 * 60, // 1 week
+        },
+      },
     },
     {
       urlPattern: /\.(?:jpg|jpeg|gif|png|svg|ico|webp)$/i,
@@ -37,9 +37,9 @@ const withPWA = require('next-pwa')({
         cacheName: 'static-image-assets',
         expiration: {
           maxEntries: 64,
-          maxAgeSeconds: 24 * 60 * 60 // 24 hours
-        }
-      }
+          maxAgeSeconds: 24 * 60 * 60, // 24 hours
+        },
+      },
     },
     {
       urlPattern: /\/_next\/image\?url=.+$/i,
@@ -48,9 +48,9 @@ const withPWA = require('next-pwa')({
         cacheName: 'next-image',
         expiration: {
           maxEntries: 64,
-          maxAgeSeconds: 24 * 60 * 60 // 24 hours
-        }
-      }
+          maxAgeSeconds: 24 * 60 * 60, // 24 hours
+        },
+      },
     },
     {
       urlPattern: /\.(?:mp3|wav|ogg)$/i,
@@ -59,9 +59,9 @@ const withPWA = require('next-pwa')({
         cacheName: 'static-audio-assets',
         expiration: {
           maxEntries: 32,
-          maxAgeSeconds: 24 * 60 * 60 // 24 hours
-        }
-      }
+          maxAgeSeconds: 24 * 60 * 60, // 24 hours
+        },
+      },
     },
     {
       urlPattern: /\.(?:js)$/i,
@@ -70,9 +70,9 @@ const withPWA = require('next-pwa')({
         cacheName: 'static-js-assets',
         expiration: {
           maxEntries: 32,
-          maxAgeSeconds: 24 * 60 * 60 // 24 hours
-        }
-      }
+          maxAgeSeconds: 24 * 60 * 60, // 24 hours
+        },
+      },
     },
     {
       urlPattern: /\.(?:css|less)$/i,
@@ -81,9 +81,9 @@ const withPWA = require('next-pwa')({
         cacheName: 'static-style-assets',
         expiration: {
           maxEntries: 32,
-          maxAgeSeconds: 24 * 60 * 60 // 24 hours
-        }
-      }
+          maxAgeSeconds: 24 * 60 * 60, // 24 hours
+        },
+      },
     },
     {
       urlPattern: /\/_next\/data\/.+\/.+\.json$/i,
@@ -92,9 +92,9 @@ const withPWA = require('next-pwa')({
         cacheName: 'next-data',
         expiration: {
           maxEntries: 32,
-          maxAgeSeconds: 24 * 60 * 60 // 24 hours
-        }
-      }
+          maxAgeSeconds: 24 * 60 * 60, // 24 hours
+        },
+      },
     },
     {
       urlPattern: /api\/((?!auth).*)$/i, // Don't cache auth endpoints
@@ -103,10 +103,10 @@ const withPWA = require('next-pwa')({
         cacheName: 'api-cache',
         expiration: {
           maxEntries: 32,
-          maxAgeSeconds: 24 * 60 * 60 // 24 hours
+          maxAgeSeconds: 24 * 60 * 60, // 24 hours
         },
-        networkTimeoutSeconds: 10 // Fallback to cache if network takes more than 10 seconds
-      }
+        networkTimeoutSeconds: 10, // Fallback to cache if network takes more than 10 seconds
+      },
     },
     {
       urlPattern: /.*/i,
@@ -115,12 +115,12 @@ const withPWA = require('next-pwa')({
         cacheName: 'others',
         expiration: {
           maxEntries: 32,
-          maxAgeSeconds: 24 * 60 * 60 // 24 hours
+          maxAgeSeconds: 24 * 60 * 60, // 24 hours
         },
-        networkTimeoutSeconds: 10
-      }
-    }
-  ]
+        networkTimeoutSeconds: 10,
+      },
+    },
+  ],
 });
 
 const nextConfig: NextConfig = withPWA({
@@ -133,7 +133,7 @@ const nextConfig: NextConfig = withPWA({
   },
   pageExtensions: ['ts', 'tsx'],
   images: {
-    domains: ['randomuser.me'],
+    domains: ['randomuser.me', 'smart-parking.yourbandy.com', 'yourbandy.com'],
   },
   eslint: {
     // Warning: This allows production builds to successfully complete even if

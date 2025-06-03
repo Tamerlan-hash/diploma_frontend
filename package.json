@@ -12,7 +12,10 @@
     "test:e2e:debug": "playwright test --debug",
     "check-env": "node scripts/check-env.js",
     "test:docker-env": "scripts\\docker-env-test.bat",
-    "test:docker-env-file": "scripts\\test-docker-env-file.bat"
+    "test:docker-env-file": "scripts\\test-docker-env-file.bat",
+    "generate-pwa-icons": "node scripts/generate-pwa-icons.js",
+    "generate-screenshots": "node scripts/create-screenshots.js",
+    "setup-pwa": "npm run generate-pwa-icons && npm run generate-screenshots"
   },
   "dependencies": {
     "axios": "^1.9.0",
@@ -44,6 +47,7 @@
     "prettier": "^3.5.3",
     "prettier-plugin-organize-imports": "^4.1.0",
     "prettier-plugin-tailwindcss": "^0.6.11",
+    "sharp": "^0.33.2",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

@@ -2,8 +2,10 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useAuth } from '@/context/AuthContext';
 
 const ContactsPage = () => {
+  const { authFetch } = useAuth();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [message, setMessage] = useState('');
@@ -13,7 +15,7 @@ const ContactsPage = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    
+
     // Form validation
     if (!name.trim() || !email.trim() || !message.trim()) {
       setError('Пожалуйста, заполните все поля');
@@ -25,17 +27,23 @@ const ContactsPage = () => {
       return;
     }
 
-    // In a real application, you would send this data to your backend
-    // For now, we'll just simulate a successful submission
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      const response = await authFetch('/api/contacts/messages/', {
+        method: 'POST',
+        data: {
+          name,
+          email,
+          message,
+        },
+      });
+
       setSubmitted(true);
       setName('');
       setEmail('');
       setMessage('');
     } catch (err) {
       setError('Произошла ошибка при отправке сообщения. Пожалуйста, попробуйте позже.');
+      console.error('Error submitting contact form:', err);
     }
   };
 
@@ -43,12 +51,12 @@ const ContactsPage = () => {
     <div className="min-h-screen bg-gray-50">
       <div className="container mx-auto p-4 py-8">
         <h1 className="text-3xl font-bold text-center mb-8">Контакты</h1>
-        
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           {/* Contact Information */}
           <div className="bg-white rounded-lg shadow-md p-6">
             <h2 className="text-xl font-bold mb-6 text-gray-800">Наши контакты</h2>
-            
+
             <div className="space-y-6">
               <div className="flex items-start">
                 <div className="flex-shrink-0 bg-yellow-400 p-3 rounded-full mr-4">
@@ -63,7 +71,7 @@ const ContactsPage = () => {
                   <p className="text-gray-600">Москва, Россия, 123456</p>
                 </div>
               </div>
-              
+
               <div className="flex items-start">
                 <div className="flex-shrink-0 bg-yellow-400 p-3 rounded-full mr-4">
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -76,7 +84,7 @@ const ContactsPage = () => {
                   <p className="text-gray-600">+7 (987) 654-3210</p>
                 </div>
               </div>
-              
+
               <div className="flex items-start">
                 <div className="flex-shrink-0 bg-yellow-400 p-3 rounded-full mr-4">
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -89,7 +97,7 @@ const ContactsPage = () => {
                   <p className="text-gray-600">support@parkingapp.ru</p>
                 </div>
               </div>
-              
+
               <div className="flex items-start">
                 <div className="flex-shrink-0 bg-yellow-400 p-3 rounded-full mr-4">
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -103,7 +111,7 @@ const ContactsPage = () => {
                 </div>
               </div>
             </div>
-            
+
             <div className="mt-8">
               <h3 className="text-lg font-semibold mb-3">Мы в социальных сетях</h3>
               <div className="flex space-x-4">
@@ -130,11 +138,11 @@ const ContactsPage = () => {
               </div>
             </div>
           </div>
-          
+
           {/* Contact Form */}
           <div className="bg-white rounded-lg shadow-md p-6">
             <h2 className="text-xl font-bold mb-6 text-gray-800">Напишите нам</h2>
-            
+
             {submitted ? (
               <div className="bg-green-100 text-green-800 p-4 rounded-lg mb-6">
                 <div className="flex items-center">
@@ -162,7 +170,7 @@ const ContactsPage = () => {
                     </div>
                   </div>
                 )}
-                
+
                 <div>
                   <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">Ваше имя</label>
                   <input
@@ -174,7 +182,7 @@ const ContactsPage = () => {
                     placeholder="Иван Иванов"
                   />
                 </div>
-                
+
                 <div>
                   <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">Email</label>
                   <input
@@ -186,7 +194,7 @@ const ContactsPage = () => {
                     placeholder="ivan@example.com"
                   />
                 </div>
-                
+
                 <div>
                   <label htmlFor="message" className="block text-sm font-medium text-gray-700 mb-1">Сообщение</label>
                   <textarea
@@ -198,7 +206,7 @@ const ContactsPage = () => {
                     placeholder="Ваше сообщение..."
                   ></textarea>
                 </div>
-                
+
                 <button
                   type="submit"
                   className="w-full bg-yellow-400 hover:bg-yellow-500 text-black py-2 px-4 rounded-lg transition duration-300"
@@ -209,7 +217,7 @@ const ContactsPage = () => {
             )}
           </div>
         </div>
-        
+
         {/* Map Section */}
         <div className="mt-8 bg-white rounded-lg shadow-md p-6">
           <h2 className="text-xl font-bold mb-6 text-gray-800">Мы на карте</h2>
@@ -228,27 +236,27 @@ const ContactsPage = () => {
             </div>
           </div>
         </div>
-        
+
         {/* FAQ Section */}
         <div className="mt-8 bg-white rounded-lg shadow-md p-6">
           <h2 className="text-xl font-bold mb-6 text-gray-800">Часто задаваемые вопросы</h2>
-          
+
           <div className="space-y-4">
             <div className="border border-gray-200 rounded-lg p-4">
               <h3 className="text-lg font-semibold mb-2">Как забронировать парковочное место?</h3>
               <p className="text-gray-600">Для бронирования парковочного места вам необходимо зарегистрироваться в нашем приложении, выбрать удобную для вас парковку на карте и следовать инструкциям по бронированию.</p>
             </div>
-            
+
             <div className="border border-gray-200 rounded-lg p-4">
               <h3 className="text-lg font-semibold mb-2">Как оплатить парковку?</h3>
               <p className="text-gray-600">Мы предлагаем различные способы оплаты: банковской картой, через электронный кошелек или наличными на месте (в зависимости от парковки).</p>
             </div>
-            
+
             <div className="border border-gray-200 rounded-lg p-4">
               <h3 className="text-lg font-semibold mb-2">Могу ли я отменить бронирование?</h3>
               <p className="text-gray-600">Да, вы можете отменить бронирование не позднее чем за 2 часа до начала забронированного времени. В этом случае деньги будут возвращены на ваш счет.</p>
             </div>
-            
+
             <div className="border border-gray-200 rounded-lg p-4">
               <h3 className="text-lg font-semibold mb-2">Что делать, если я не могу найти свободное место?</h3>
               <p className="text-gray-600">Наше приложение показывает актуальную информацию о свободных местах в режиме реального времени. Если на выбранной парковке нет свободных мест, вы можете выбрать другую ближайшую парковку.</p>
